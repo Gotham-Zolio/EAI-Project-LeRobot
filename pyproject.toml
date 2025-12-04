@@ -1,0 +1,27 @@
+[project]
+name = "eai-project-lerobot"
+version = "0.1.0"
+description = "Embodied AI Project using LeRobot"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "sapien",
+    "mplib",
+    "tyro",
+    "numpy",
+    "opencv-python",
+    "pillow",
+    "torch",
+    "lerobot",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
