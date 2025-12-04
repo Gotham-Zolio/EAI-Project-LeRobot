@@ -1,0 +1,132 @@
+\documentclass[10pt]{article} % 10pt 字体更接近 NeurIPS 风格
+
+% --- 模拟 NeurIPS 格式设置 (无需 .sty 文件) ---
+\usepackage[utf8]{inputenc} % 允许 utf-8 输入
+\usepackage[T1]{fontenc}    % 8-bit 字体编码
+\usepackage[a4paper, left=1.25in, right=1.25in, top=1in, bottom=1in]{geometry} % NeurIPS 风格页边距
+\usepackage{mathptmx}       % 使用 Times 字体 (正文和数学公式)
+\usepackage{microtype}      % 优化排版间距
+\usepackage{url}            % 简单的 URL 排版
+\usepackage{booktabs}       % 专业表格
+\usepackage{amsfonts}       % 黑板粗体等
+\usepackage{nicefrac}       %紧凑的分数显示
+\usepackage{microtype}      % 细微排版调整
+\usepackage{xcolor}         % 颜色
+\usepackage{graphicx}       % 图片
+\usepackage{amsmath}        % 数学公式
+\usepackage{wrapfig}        % 图文混排（节省空间）
+\usepackage{float}          % 浮动图形控制
+\usepackage{caption}        % 图注
+\usepackage{subcaption}     % 子图支持
+
+% --- 超链接设置 ---
+\usepackage[colorlinks,linkcolor=red,anchorcolor=blue,citecolor=green,pdfpagelabels=false]{hyperref}
+
+% --- 标题格式调整 ---
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titlespacing*{\section}{0pt}{1.5ex plus 1ex minus .2ex}{1ex plus .2ex}
+\titlespacing*{\subsection}{0pt}{1.2ex plus 1ex minus .2ex}{0.8ex plus .2ex}
+
+% --- 首页标题信息 ---
+\title{\textbf{Mid-term Report: Diffusion Policy for LeRobot SO-101 Manipulation Tasks}}
+\author{
+  \textit{Embodied Artificial Intelligence 2025 Course Project} \\
+  Guanheng Chen, Zuo Gou, Zhengyang Fan 
+}
+\date{} % 隐藏默认日期以节省空间
+
+\begin{document}
+
+\maketitle
+\vspace{-1em}
+
+% --- 1. Project Topic (根据要求：Topic & Team) ---
+\section{Project Topic}
+Our project aims to implement and extend \textbf{Diffusion Policy} for all three official benchmark tasks---Lift, Stack, Sort---and a custom manipulation task, within a unified simulation environment (SAPIEN/Gym). Diffusion Policy is a recent imitation learning framework that models the robot's action distribution as a conditional diffusion process, enabling the capture of multi-modal behaviors and robust control in high-dimensional spaces. Compared to traditional explicit policies, it is better at handling ambiguous or multi-solution tasks. We use expert demonstration data for all tasks, and train the policy via supervised learning (behavior cloning) with a DDPM backbone. 
+
+% --- 2. Technical Progress (根据要求：Methods & Visual Results) ---
+\section{Technical Progress}
+
+\subsection{Methods Implemented}
+Our pipeline roughly consists of the following steps:
+\begin{itemize}
+    \item \textbf{Data Processing:} Expert demonstration data including joint angles and gripper actions are normalized to $[0, 1]$ using min-max statistics. Sequence chunking generates fixed-length action/observation windows for training.
+    \item \textbf{Model Architecture:} The policy is a \textbf{Denoising Diffusion Probabilistic Model (DDPM)} with a multi-layer perceptron (MLP) backbone. The model receives as input the normalized observation $O_t$, a noisy action increment sequence $\tilde{\Delta a}$, and a time embedding $\tau_t$ (learned via a small MLP). The output is the predicted noise for each action increment.
+    \item \textbf{Training:} The model is trained to minimize the mean squared error (MSE) between the predicted and true noise, plus a smoothness loss to encourage temporally smooth actions:
+    \begin{equation}
+        \mathcal{L} = \mathbb{E}_{t, \Delta a, \epsilon} \left[ \| \epsilon - \epsilon_\theta(\tilde{\Delta a}, t, O_t) \|^2 \right] + \lambda_{\text{smooth}} \cdot \text{SmoothLoss}
+    \end{equation}
+    where $\tilde{\Delta a}$ is the noisy action increment, $t$ is the diffusion step, and $\lambda_{\text{smooth}}$ is a tunable weight.
+    \item \textbf{EMA:} An exponential moving average (EMA) of model weights for stable evaluation.
+\end{itemize}
+
+\subsection{Preliminary Results and Visualizations}
+
+\begin{figure}[H]
+
+    \centering
+    \includegraphics[width=0.45\textwidth]{figs/simulation.png}
+    \caption{Simulation environment for all tasks. The workspace and two SO-101 robot arms are arranged to closely match the real-world setup, supporting flexible reconfiguration for Lift, Stack, Sort, and custom tasks.}
+    \label{fig:sim}
+\end{figure}
+
+To ensure sim-to-real consistency and enable multi-view perception, we set up three onboard cameras in the simulation: a front camera (with distortion to match the real robot), a left wrist camera, and a right wrist camera. These camera placements are consistent with the real robot hardware and provide diverse visual observations for both training and evaluation.
+
+\begin{figure}[H]
+
+    \centering
+    \includegraphics[width=0.3\textwidth]{figs/front_camera (distorted).png}
+    \includegraphics[width=0.3\textwidth]{figs/left_wrist_camera.png}
+    \includegraphics[width=0.3\textwidth]{figs/right_wrist_camera.png}
+    \caption{Sample images from the three onboard cameras in simulation. \\Left: Front camera (with distortion), providing a global view of the workspace and both robot arms, closely matching the real robot's main camera.\\ Middle: Left wrist camera. Right: Right wrist camera.}
+    \label{fig:cameras}
+\end{figure}
+
+In initial experiments on the Lift task, the agent is able to approach the target and move smoothly, but it cannot yet successfully interact with or manipulate the block. No successful lifts have been observed so far. We suspect this is due to gripper control or action protocol mismatch between the dataset and simulation. We plan to further debug the gripper logic and refine the action mapping. Meanwhile, the pipeline is being extended to Stack, Sort, and custom tasks, where similar evaluation and troubleshooting will be performed.
+
+% --- 3. Timeline (根据要求：Detailed Timeline) ---
+\section{Remaining Work Schedule}
+
+
+We have developed a detailed timeline to ensure systematic progress across all required tasks. The plan is as follows:
+
+\begin{table}[H]
+    \centering
+    \caption{Project Timeline (Dec 2025 - Jan 2026)}
+    \vspace{0.2em}
+    \small
+    \begin{tabular}{lp{10cm}}
+        {\textbf{Date Range}} & {\textbf{Key Tasks \& Milestones}} \\
+        \midrule
+        {\textbf{Dec 1 -- Dec 7}} & 
+            {\textbf{Simulation Environment Setup:}} Complete the simulation environment construction for all benchmark tasks (Lift, Stack, Sort) and the self-defined task, including workspace, objects, and camera configuration. \\
+        \cmidrule(l){1-2}
+        {\textbf{Dec 8 -- Dec 14}} & 
+            {\textbf{Data Collection:}} For each benchmark task, collect at least one set of demonstration trajectories with a success rate above 50\%. Prepare and preprocess datasets for subsequent training. \\
+        \cmidrule(l){1-2}
+        {\textbf{Dec 15 -- Dec 21}} & 
+            {\textbf{Diffusion Policy Training:}} (1) Train a diffusion policy using the provided datasets; (2) Train a diffusion policy using self-collected data. Conduct ablation studies if time permits. \\
+        \cmidrule(l){1-2}
+        {\textbf{Dec 22 -- Dec 26}} & 
+            {\textbf{Real Robot Deployment:}} Deploy the trained policy to the real robot. Align the real robot and simulation environments, and perform sim-to-real transfer tests. \\
+        \cmidrule(l){1-2}
+        {\textbf{Dec 27 -- Dec 30}} & 
+            {\textbf{Policy Improvement:}} If the policy performance is unsatisfactory, consider introducing reinforcement learning (RL) for fine-tuning. Iterate on data collection and training as needed. \\
+        \cmidrule(l){1-2}
+        {\textbf{Dec 31 -- Jan 1}} & 
+            {\textbf{Evaluation and Visualization:}} Conduct comprehensive evaluation of all tasks (success rate, robustness, etc.), collect and visualize results, and prepare demo videos. \\
+        \cmidrule(l){1-2}
+        {\textbf{Jan 2}} & 
+            {\textbf{In-class Presentation:}} Present methodology, results, and video demonstration in class. \\
+        \cmidrule(l){1-2}
+        {\textbf{Jan 3 -- Jan 9}} & 
+            {\textbf{Final Report:}} Compile and submit the final project report, including all experimental analysis and visualizations. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Timeline: Sim, demos, train, deploy, RL, eval, present, report.
+
+\end{document}

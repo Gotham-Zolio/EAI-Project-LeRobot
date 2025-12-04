@@ -1,0 +1,20 @@
+<?xml version="1.0" ?>
+<robot name="so101_new_calib">
+  <disable_collisions link1="base_link" link2="shoulder_link" reason="Adjacent"/>
+  <disable_collisions link1="wrist_link" link2="gripper_link" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_link" link2="upper_arm_link" reason="Adjacent"/>
+  <disable_collisions link1="upper_arm_link" link2="lower_arm_link" reason="Adjacent"/>
+  <disable_collisions link1="lower_arm_link" link2="wrist_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_link" link2="moving_jaw_so101_v1_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_link" link2="gripper_frame_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="base_link" link2="gripper_frame_link" reason="Never"/>
+  <disable_collisions link1="shoulder_link" link2="gripper_frame_link" reason="Never"/>
+  <disable_collisions link1="upper_arm_link" link2="gripper_frame_link" reason="Never"/>
+  <disable_collisions link1="lower_arm_link" link2="gripper_link" reason="Never"/>
+  <disable_collisions link1="lower_arm_link" link2="moving_jaw_so101_v1_link" reason="Never"/>
+  <disable_collisions link1="lower_arm_link" link2="gripper_frame_link" reason="Never"/>
+  <disable_collisions link1="wrist_link" link2="moving_jaw_so101_v1_link" reason="Never"/>
+  <disable_collisions link1="wrist_link" link2="gripper_frame_link" reason="Never"/>
+  <disable_collisions link1="moving_jaw_so101_v1_link" link2="gripper_frame_link" reason="Never"/>
+</robot>

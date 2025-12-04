@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# LaTeX
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.toc
+*.bbl
+*.blg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Specific
+dataset/
+outputs/
+checkpoints/
+logs/
+wandb/
+results/
+
+# Temporary files
+pdf_content.txt
+pdf_content_extracted.txt
+pdf_dump.txt
+track1_details_extracted.txt
