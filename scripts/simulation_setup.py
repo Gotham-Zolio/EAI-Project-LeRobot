@@ -2,89 +2,239 @@ import sapien
 import numpy as np
 import tyro
 from sapien.pysapien.render import RenderCameraComponent
+from sapien.core import Entity, Pose
 
-def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True):
-    # 1. Scene Initialization
-    scene = sapien.Scene()
-    scene.set_timestep(1 / 240)
-    scene.set_ambient_light([0.5, 0.5, 0.5])
-    scene.add_directional_light([0, 1, -1], [0.5, 0.5, 0.5])
+import os
+from PIL import Image, ImageDraw, ImageFont
+import itertools
+from scipy.spatial.transform import Rotation as R
+import cv2
 
-    # 2. Ground and Table Setup
-    ground_material = sapien.render.RenderMaterial()
-    ground_material.base_color = np.array([202, 164, 114, 256]) / 256
-    ground_material.specular = 0.5
-    scene.add_ground(0, render_material=ground_material)
+CM = 0.01
 
-    # 3. Add Bounding Bands (from front_camera.py)
-    BAND_Z_POS = 0.005
-    band_builder = scene.create_actor_builder()
-    band_builder.add_box_visual(half_size=[10, 0.009, 0.01], material=[0, 0, 0])
-    band_builder.add_box_collision(half_size=[10, 0.009, 0.01])
-    
-    # Band positions
-    band_positions = [0.029, 0.213, 0.387, 0.571]
-    for i, y_pos in enumerate(band_positions):
-        band = band_builder.build(name=f"band_{i}")
-        band.set_pose(sapien.Pose([0, y_pos, BAND_Z_POS]))
 
-    # 4. Load Robot (from robot.py)
+# ------------------------ Utils ------------------------
+def add_box(scene, center, size, color):
+    actor_builder = scene.create_actor_builder()
+    half = [s / 2 for s in size]
+    material = sapien.render.RenderMaterial()
+    material.base_color = np.array(color)
+    actor_builder.add_box_collision(half_size=half)
+    actor_builder.add_box_visual(half_size=half, material=material)
+    actor = actor_builder.build()
+    actor.set_pose(sapien.Pose(center))
+    return actor
+
+
+def add_floor(scene):
+    width = 120 * CM
+    height = 60 * CM
+    thickness = 0.01
+
+    builder = scene.create_actor_builder()
+    half = [width / 2, height / 2, thickness / 2]
+
+    material = sapien.render.RenderMaterial()
+    material.base_color = np.array([0.92, 0.92, 0.92, 1])
+    material.specular = 0.1
+
+    builder.add_box_collision(half_size=half)
+    builder.add_box_visual(half_size=half, material=material)
+
+    floor = builder.build()
+    floor.set_pose(sapien.Pose([width/2, height/2, -thickness/2]))
+    return floor
+
+
+# ------------------------ Robot ------------------------
+def load_arm(scene, urdf_path, root_x):
     loader = scene.create_urdf_loader()
-    loader.fix_root_link = fix_root_link
-    # Note: Ensure the assets folder is in the correct path relative to this script
-    try:
-        robot = loader.load("reference-scripts/assets/SO101/so101.urdf")
-    except Exception:
-        # Fallback if running from root and assets are in reference-scripts
-        robot = loader.load("assets/SO101/so101.urdf")
-        
-    robot.set_root_pose(sapien.Pose([0, 0, 0], [1, 0, 0, 0]))
-    
-    # Set initial joint positions
-    arm_init_qpos = [0, 0, 0, 0, 0]
-    gripper_init_qpos = [0]
-    robot.set_qpos(arm_init_qpos + gripper_init_qpos)
+    loader.fix_root_link = True
+    arm = loader.load(urdf_path)
 
-    # 5. Camera Setup (from front_camera.py)
-    camera_mount = sapien.Entity()
-    camera = RenderCameraComponent(640, 480)
-    camera.set_fovx(np.deg2rad(117.12), compute_y=False)
-    camera.set_fovy(np.deg2rad(73.63), compute_x=False)
-    camera.near = 0.01
-    camera.far = 100
-    camera_mount.add_component(camera)
-    camera_mount.name = "front_camera"
-    scene.add_entity(camera_mount)
+    quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
+    quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
 
-    # Camera Pose
-    cam_rot = np.array([
-        [np.cos(np.pi/2), 0, np.sin(np.pi/2)],
-        [0, 1, 0],
-        [-np.sin(np.pi/2), 0, np.cos(np.pi/2)],
-    ])
-    mat44 = np.eye(4)
-    mat44[:3, :3] = cam_rot
-    mat44[:3, 3] = np.array([0.26, 0.316, 0.407]) # Offset from front_camera.py
-    camera_mount.set_pose(sapien.Pose(mat44))
+    temp_pose = sapien.Pose(p=[root_x, 0.0, 0.0], q=quat_sapien)
+    arm.set_root_pose(temp_pose)
 
-    # 6. Viewer Setup
-    viewer = scene.create_viewer()
-    viewer.set_camera_xyz(x=-1, y=0.3, z=0.5)
-    viewer.set_camera_rpy(r=0, p=-0.3, y=0)
+    aabb_min, _ = arm.get_links()[0].get_global_aabb_fast()
+    root_y = -aabb_min[1]
 
-    print("Simulation started. Close the viewer window to exit.")
-    
-    while not viewer.closed:
-        for _ in range(4):
-            if balance_passive_force:
-                qf = robot.compute_passive_force(
-                    gravity=True,
-                    coriolis_and_centrifugal=True,
-                )
-                robot.set_qf(qf)
+    pose = sapien.Pose(p=[root_x, root_y, 0.0], q=quat_sapien)
+    arm.set_root_pose(pose)
+
+    return arm
+
+
+def add_wrist_camera(robot, link_name="camera_link"):
+    link = robot.find_link_by_name(link_name)
+
+    cam_w = 640
+    cam_h = 480
+    fovy = np.deg2rad(50)
+    fx = cam_w / (2 * np.tan(fovy / 2))
+    fy = fx
+    cx = cam_w / 2
+    cy = cam_h / 2
+    near = 0.01
+    far = 5.0
+
+    cam = RenderCameraComponent(width=cam_w, height=cam_h)
+    cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
+    link.entity.add_component(cam)
+    cam.set_entity_pose(sapien.Pose([0, 0, 0], [1, 0, 0, 0]))
+
+    return cam
+
+
+# ------------------------ Camera Distortion ------------------------
+def apply_distortion(img, fx, fy, cx, cy):
+    h, w = img.shape[:2]
+
+    k1, k2, p1, p2, k3 = [
+        -0.735413911,
+         0.949258417,
+         0.000189059,
+        -0.002003513,
+        -0.864150312
+    ]
+
+    xs, ys = np.meshgrid(np.arange(w), np.arange(h))
+    xd = (xs - cx) / fx
+    yd = (ys - cy) / fy
+    r2 = xd*xd + yd*yd
+    r4 = r2*r2
+    r6 = r4*r2
+
+    radial = 1 + k1*r2 + k2*r4 + k3*r6
+    x = (xd - 2*p1*xd*yd - p2*(r2 + 2*xd*xd)) / radial
+    y = (yd - p1*(r2 + 2*yd*yd) - 2*p2*xd*yd) / radial
+    u = (x * fx + cx).astype(np.float32)
+    v = (y * fy + cy).astype(np.float32)
+
+    distorted_img = cv2.remap(img, u, v, interpolation=cv2.INTER_LINEAR)
+    return distorted_img
+
+
+# ------------------------ Block ------------------------
+def add_block(scene, center, size=3*CM, color=[1,0,0,1], label="A"):
+    """
+    创建一个边长3cm、红色、上表面带字母A的物块
+    center: [x, y, z]
+    """
+    half = [size/2]*3
+    actor_builder = scene.create_actor_builder()
+
+    # collision + visual
+    actor_builder.add_box_collision(half_size=half)
+    material = sapien.render.RenderMaterial()
+    material.base_color = np.array(color)
+    actor_builder.add_box_visual(half_size=half, material=material)
+
+    actor = actor_builder.build()
+
+    # 贴字纹理
+    tex_size = 256
+    img = Image.new("RGBA", (tex_size, tex_size),
+                    (int(color[0]*255), int(color[1]*255), int(color[2]*255), 255))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    w, h = draw.textsize(label, font=font)
+    draw.text(((tex_size-w)/2, (tex_size-h)/2), label,
+               fill=(255,255,255,255), font=font)
+    tex_np = np.array(img).astype(np.float32)/255.0
+
+    actor.get_render_body().visuals[0].set_texture(tex_np)
+
+    actor.set_pose(sapien.Pose(center))
+    return actor
+
+
+# ------------------------ Scene Construction ------------------------
+def create_scene(
+    fix_root_link: bool = True,
+    balance_passive_force: bool = True,
+    headless: bool = False,
+):
+    # ------ Scene init ------
+    scene = sapien.Scene()
+    scene.set_timestep(1/240)
+    scene.set_ambient_light([0.3, 0.3, 0.3])
+    scene.add_directional_light([0.3, 1, -0.3], [0.7, 0.7, 0.7])
+    scene.add_directional_light([-0.3, 1, -0.1], [0.4, 0.4, 0.4])
+
+    # Floor
+    add_floor(scene)
+
+    # Boundary lines
+    BORDER = 1.8 * CM
+    d = 0.01 * CM
+    black = [0, 0, 0, 1]
+
+    add_box(scene, center=[60*CM,30*CM,d/2], size=[BORDER,60*CM,d], color=black)
+    add_box(scene, center=[2.9*CM,25*CM,d/2], size=[BORDER,16.4*CM,d], color=black)
+    add_box(scene, center=[21.3*CM,25*CM,d/2], size=[BORDER,16.4*CM,d], color=black)
+    add_box(scene, center=[38.7*CM,25*CM,d/2], size=[BORDER,16.4*CM,d], color=black)
+    add_box(scene, center=[57.1*CM,25*CM,d/2], size=[BORDER,16.4*CM,d], color=black)
+    add_box(scene, center=[21.3*CM,7.5*CM,d/2], size=[BORDER,15*CM,d], color=black)
+    add_box(scene, center=[38.7*CM,7.5*CM,d/2], size=[BORDER,15*CM,d], color=black)
+    add_box(scene, center=[30*CM,15.9*CM,d/2], size=[56*CM,BORDER,d], color=black)
+    add_box(scene, center=[30*CM,34.1*CM,d/2], size=[56*CM,BORDER,d], color=black)
+
+    # Front camera
+    cam_w, cam_h = 640, 480
+    fx, fy = 570.21740069, 570.17974410
+    cx, cy = cam_w/2, cam_h/2
+    near, far = 0.01, 50.0
+
+    cam_mount = Entity()
+    cam = RenderCameraComponent(width=cam_w, height=cam_h)
+    cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
+    cam_mount.add_component(cam)
+
+    cam_x, cam_y, cam_z = 31.6*CM, 26.0*CM, 20.3*CM
+    quat = R.from_euler('xyz', [0.0, np.pi/2, -np.pi/2]).as_quat()
+    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
+    cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
+    scene.add_entity(cam_mount)
+
+    # Load robot arms
+    urdf_path = "reference-scripts/assets/SO101/so101.urdf"
+    left_arm = load_arm(scene, urdf_path, root_x=11.9 * CM)
+    right_arm = load_arm(scene, urdf_path, root_x=48.1 * CM)
+
+    add_wrist_camera(left_arm)
+    add_wrist_camera(right_arm)
+
+    return scene, cam, left_arm, right_arm
+
+
+# ------------------------ Main ------------------------
+if __name__ == "__main__":
+    class Args(tyro.conf.Suppress):
+        headless: bool = True
+        block_x: float = 0.30
+        block_y: float = 0.20
+
+    args = tyro.cli(Args)
+
+    scene, front_cam, left_arm, right_arm = create_scene(headless=args.headless)
+
+    # Add block (3cm, red, label A)
+    add_block(scene, center=[args.block_x, args.block_y, 1.5*CM])
+
+    if args.headless:
+        for _ in range(60):
             scene.step()
         scene.update_render()
-        viewer.render()
 
-if __name__ == "__main__":
-    tyro.cli(create_scene)
+        os.makedirs("logs", exist_ok=True)
+
+        # Save front camera image (with distortion)
+        front_cam.take_picture()
+        rgba = (front_cam.get_picture("Color") * 255).astype("uint8")
+        rgba = apply_distortion(rgba, 570.21740069, 570.17974410, 320, 240)
+        Image.fromarray(rgba).save("logs/front_camera.png")
+
+        print("Saved logs/front_camera.png")
