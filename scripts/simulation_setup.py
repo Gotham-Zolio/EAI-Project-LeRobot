@@ -119,10 +119,6 @@ def apply_distortion(img, fx, fy, cx, cy):
 
 # ------------------------ Block ------------------------
 def add_block(scene, center, size=3*CM, color=[1,0,0,1], label="A"):
-    """
-    创建一个边长3cm、红色、上表面带字母A的物块
-    center: [x, y, z]
-    """
     half = [size/2]*3
     actor_builder = scene.create_actor_builder()
 
@@ -134,7 +130,6 @@ def add_block(scene, center, size=3*CM, color=[1,0,0,1], label="A"):
 
     actor = actor_builder.build()
 
-    # 贴字纹理
     tex_size = 256
     img = Image.new("RGBA", (tex_size, tex_size),
                     (int(color[0]*255), int(color[1]*255), int(color[2]*255), 255))
