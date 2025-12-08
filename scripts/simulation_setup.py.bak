@@ -50,98 +50,82 @@ def add_floor(scene):
 def load_arm(scene, urdf_path, root_x):
     loader = scene.create_urdf_loader()
     loader.fix_root_link = True
-    robot = loader.load(urdf_path)
-    robot.set_root_pose(sapien.Pose([root_x, 30*CM, 0], [1, 0, 0, 0]))
-    return robot
+    arm = loader.load(urdf_path)
+
+    quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
+    quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
+
+    temp_pose = sapien.Pose(p=[root_x, 0.0, 0.0], q=quat_sapien)
+    arm.set_root_pose(temp_pose)
+
+    aabb_min, _ = arm.get_links()[0].get_global_aabb_fast()
+    root_y = -aabb_min[1]
+
+    pose = sapien.Pose(p=[root_x, root_y, 0.0], q=quat_sapien)
+    arm.set_root_pose(pose)
+
+    return arm
 
 
-def add_wrist_camera(arm):
-    # Get end effector link
-    try:
-        links = arm.get_links()
-        eef_link = links[-1]
+def add_wrist_camera(robot, link_name="camera_link"):
+    link = robot.find_link_by_name(link_name)
 
-        cam_w, cam_h = 640, 480
-        fx, fy = 570.21740069, 570.17974410
-        cx, cy = cam_w/2, cam_h/2
-        near, far = 0.01, 50.0
+    cam_w = 640
+    cam_h = 480
+    fovy = np.deg2rad(50)
+    fx = cam_w / (2 * np.tan(fovy / 2))
+    fy = fx
+    cx = cam_w / 2
+    cy = cam_h / 2
+    near = 0.01
+    far = 5.0
 
-        cam = RenderCameraComponent(width=cam_w, height=cam_h)
-        cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
+    cam = RenderCameraComponent(width=cam_w, height=cam_h)
+    cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
+    link.entity.add_component(cam)
+    cam.set_entity_pose(sapien.Pose([0, 0, 0], [1, 0, 0, 0]))
 
-        # Try to add component, but SAPIEN 3.0 might not support this
-        try:
-            eef_link.add_component(cam)
-        except AttributeError:
-            # Skip if add_component is not available
-            pass
-    except Exception as e:
-        # Skip camera setup if there are issues
-        print(f"Warning: Could not setup wrist camera: {e}")
+    return cam
 
 
-def apply_distortion(rgba, fx, fy, cx, cy, k1=0.0, k2=0.0, p1=0.0, p2=0.0, k3=0.0):
-    """
-    Apply lens distortion to an image given intrinsic parameters and distortion coefficients.
-    """
-    h, w = rgba.shape[:2]
-    x, y = np.meshgrid(np.arange(w), np.arange(h))
+# ------------------------ Camera Distortion ------------------------
+def apply_distortion(img, fx, fy, cx, cy):
+    h, w = img.shape[:2]
 
-    # Normalize coordinates
-    x_norm = (x - cx) / fx
-    y_norm = (y - cy) / fy
+    k1, k2, p1, p2, k3 = [
+        -0.735413911,
+         0.949258417,
+         0.000189059,
+        -0.002003513,
+        -0.864150312
+    ]
 
-    # Calculate radial distance
-    r2 = x_norm**2 + y_norm**2
-    r4 = r2**2
-    r6 = r2**3
+    xs, ys = np.meshgrid(np.arange(w), np.arange(h))
+    xd = (xs - cx) / fx
+    yd = (ys - cy) / fy
+    r2 = xd*xd + yd*yd
+    r4 = r2*r2
+    r6 = r4*r2
 
-    # Radial distortion
     radial = 1 + k1*r2 + k2*r4 + k3*r6
+    x = (xd - 2*p1*xd*yd - p2*(r2 + 2*xd*xd)) / radial
+    y = (yd - p1*(r2 + 2*yd*yd) - 2*p2*xd*yd) / radial
+    u = (x * fx + cx).astype(np.float32)
+    v = (y * fy + cy).astype(np.float32)
 
-    # Tangential distortion
-    tangential_x = 2*p1*x_norm*y_norm + p2*(r2 + 2*x_norm**2)
-    tangential_y = p1*(r2 + 2*y_norm**2) + 2*p2*x_norm*y_norm
-
-    # Apply distortion
-    x_distorted = x_norm * radial + tangential_x
-    y_distorted = y_norm * radial + tangential_y
-
-    # Convert back to pixel coordinates
-    x_pixel = x_distorted * fx + cx
-    y_pixel = y_distorted * fy + cy
-
-    # Remap image
-    x_pixel = x_pixel.astype(np.float32)
-    y_pixel = y_pixel.astype(np.float32)
-
-    # Handle RGBA separately
-    output = np.zeros_like(rgba)
-    for c in range(min(3, rgba.shape[2])):
-        output[:,:,c] = cv2.remap(rgba[:,:,c], x_pixel, y_pixel, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-    if rgba.shape[2] == 4:
-        output[:,:,3] = cv2.remap(rgba[:,:,3], x_pixel, y_pixel, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-
-    return output
+    distorted_img = cv2.remap(img, u, v, interpolation=cv2.INTER_LINEAR)
+    return distorted_img
 
 
-def add_block(scene, center, color, label="A"):
-    """
-    Add a colored block to the scene.
-    
-    Args:
-        scene: The simulation scene
-        center: [x, y, z] position
-        color: [r, g, b, a] color (values 0-1)
-        label: Text label for the block
-    """
-    size = [3*CM, 3*CM, 3*CM]
-
+# ------------------------ Block ------------------------
+def add_block(scene, center, size=3*CM, color=[1,0,0,1], label="A"):
+    half = [size/2]*3
     actor_builder = scene.create_actor_builder()
-    half = [s / 2 for s in size]
+
+    # collision + visual
+    actor_builder.add_box_collision(half_size=half)
     material = sapien.render.RenderMaterial()
     material.base_color = np.array(color)
-    actor_builder.add_box_collision(half_size=half)
     actor_builder.add_box_visual(half_size=half, material=material)
 
     actor = actor_builder.build()
@@ -165,10 +149,14 @@ def add_block(scene, center, color, label="A"):
 
 
 # ------------------------ Scene Construction ------------------------
-def create_scene(headless=True):
+def create_scene(
+    fix_root_link: bool = True,
+    balance_passive_force: bool = True,
+    headless: bool = False,
+):
+    # ------ Scene init ------
     scene = sapien.Scene()
-    scene.add_ground(0)
-
+    scene.set_timestep(1/240)
     scene.set_ambient_light([0.3, 0.3, 0.3])
     scene.add_directional_light([0.3, 1, -0.3], [0.7, 0.7, 0.7])
     scene.add_directional_light([-0.3, 1, -0.1], [0.4, 0.4, 0.4])
@@ -202,7 +190,7 @@ def create_scene(headless=True):
     cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
     cam_mount.add_component(cam)
 
-    cam_x, cam_y, cam_z = 31.6*CM, 26.0*CM, 60*CM
+    cam_x, cam_y, cam_z = 31.6*CM, 26.0*CM, 20.3*CM
     quat = R.from_euler('xyz', [0.0, np.pi/2, -np.pi/2]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
@@ -219,29 +207,6 @@ def create_scene(headless=True):
     return scene, cam, left_arm, right_arm
 
 
-# 场景配置
-def setup_scene_1(scene):
-    """场景1：红色块放在最左边的方框里"""
-    # 最左边的方框大约是 [2.9-21.3, 17-33] 区间
-    # 选择中心位置：x ~ 12, y ~ 25
-    add_block(scene, center=[12*CM, 25*CM, 1.5*CM], color=[1.0, 0.0, 0.0, 1.0], label="Red")
-
-
-def setup_scene_2(scene):
-    """场景2：红色块和绿色块放在最左边的方框里（不同位置）"""
-    # 最左边的方框中放两个块，略微分开
-    add_block(scene, center=[8*CM, 22*CM, 1.5*CM], color=[1.0, 0.0, 0.0, 1.0], label="R")
-    add_block(scene, center=[16*CM, 28*CM, 1.5*CM], color=[0.0, 0.8, 0.0, 1.0], label="G")
-
-
-def setup_scene_3(scene):
-    """场景3：红色块和绿色块放在中间的方块里"""
-    # 中间的方框大约是 [21.3-38.7, 17-33] 区间
-    # 中心位置：x ~ 30, y ~ 25
-    add_block(scene, center=[27*CM, 23*CM, 1.5*CM], color=[1.0, 0.0, 0.0, 1.0], label="R")
-    add_block(scene, center=[33*CM, 27*CM, 1.5*CM], color=[0.0, 0.8, 0.0, 1.0], label="G")
-
-
 # ------------------------ Main ------------------------
 if __name__ == "__main__":
     from dataclasses import dataclass
@@ -252,23 +217,11 @@ if __name__ == "__main__":
         scene: int = 1  # 场景1、2或3
 
     args = tyro.cli(Args)
-
-    # 验证场景号
-    if args.scene not in [1, 2, 3]:
-        raise ValueError(f"scene must be 1, 2, or 3, got {args.scene}")
-
-    scene, front_cam, left_arm, right_arm = create_scene(headless=args.headless)
-
-    # 根据场景号添加块
-    if args.scene == 1:
-        setup_scene_1(scene)
-    elif args.scene == 2:
-        setup_scene_2(scene)
-    elif args.scene == 3:
-        setup_scene_3(scene)
+    # Add block (3cm, red, label A)
+    add_block(scene, center=[args.block_x, args.block_y, 1.5*CM])
 
     if args.headless:
-        for _ in range(160):
+        for _ in range(60):
             scene.step()
         scene.update_render()
 
@@ -278,6 +231,6 @@ if __name__ == "__main__":
         front_cam.take_picture()
         rgba = (front_cam.get_picture("Color") * 255).astype("uint8")
         rgba = apply_distortion(rgba, 570.21740069, 570.17974410, 320, 240)
-        Image.fromarray(rgba).save(f"logs/front_camera_scene{args.scene}.png")
+        Image.fromarray(rgba).save("logs/front_camera.png")
 
-        print(f"✓ Saved logs/front_camera_scene{args.scene}.png")
+        print("Saved logs/front_camera.png")
