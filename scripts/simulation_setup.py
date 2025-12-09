@@ -233,7 +233,7 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     return scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam
 
 
-# ---------------- Scene configurations (three tasks) ----------------
+# ---------------- Scene configurations ----------------
 def setup_scene_1(scene):
     """Scene 1: one red block in the leftmost box"""
     add_block(scene, center=[12 * CM, 25 * CM, 1.5 * CM], color=[1.0, 0.0, 0.0, 1.0], label="Red")
@@ -282,21 +282,21 @@ if __name__ == "__main__":
             scene.step()
         scene.update_render()
 
-        os.makedirs("logs", exist_ok=True)
+        os.makedirs("logs/scene", exist_ok=True)
 
         # front camera
         front_cam.take_picture()
         rgba = (front_cam.get_picture("Color") * 255).astype("uint8")
         rgba = apply_distortion(rgba, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY)
-        Image.fromarray(rgba).save(os.path.join("logs", f"front_camera_scene{args.scene}.png"))
+        Image.fromarray(rgba).save(os.path.join("logs/scene", f"front_camera_scene{args.scene}.png"))
 
         # wrist cameras
         left_wrist_cam.take_picture()
         lw_img = (left_wrist_cam.get_picture("Color") * 255).astype("uint8")
-        Image.fromarray(lw_img).save(os.path.join("logs", f"left_wrist_camera_scene{args.scene}.png"))
+        Image.fromarray(lw_img).save(os.path.join("logs/scene", f"left_wrist_camera_scene{args.scene}.png"))
 
         right_wrist_cam.take_picture()
         rw_img = (right_wrist_cam.get_picture("Color") * 255).astype("uint8")
-        Image.fromarray(rw_img).save(os.path.join("logs", f"right_wrist_camera_scene{args.scene}.png"))
+        Image.fromarray(rw_img).save(os.path.join("logs/scene", f"right_wrist_camera_scene{args.scene}.png"))
 
-        print(f"Saved front and wrist camera images for scene {args.scene} in logs/")
+        print(f"Saved front and wrist camera images for scene {args.scene} in logs/scene/")
