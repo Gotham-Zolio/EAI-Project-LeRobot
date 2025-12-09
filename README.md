@@ -46,14 +46,22 @@ EAI-CourseProject-LeRobot/
 ## 🛠️ Usage
 
 ### 1. Installation
+
 ```bash
 # Create virtual environment
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies（推荐使用国内镜像源）
+python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 ```
+
+如无网络问题可直接：
+```bash
+python -m pip install -r requirements.txt
+```
+
+如遇网络问题可多次重试，或手动安装依赖。
 
 ### 2. Running Simulation
 ```bash
