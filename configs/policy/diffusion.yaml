@@ -1,0 +1,3 @@
+policy_name: diffusion
+backbone: resnet18
+num_diffusion_steps: 100
