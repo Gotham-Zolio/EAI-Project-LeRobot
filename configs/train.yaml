@@ -6,3 +6,8 @@ defaults:
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+batch_size: 32
+lr: 1e-4
+epochs: 50
+save_freq: 10

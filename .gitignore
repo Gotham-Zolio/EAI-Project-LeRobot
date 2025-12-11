@@ -8,6 +8,10 @@ venv/
 env/
 .env
 
+# data
+data/
+data
+
 # LaTeX
 *.aux
 *.log

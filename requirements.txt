@@ -7,3 +7,6 @@ pillow
 torch
 scipy
 lerobot
+pandas
+pyarrow
+diffusers
