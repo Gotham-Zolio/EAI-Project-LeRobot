@@ -8,6 +8,10 @@ venv/
 env/
 .env
 
+# data
+data/
+data
+
 # LaTeX
 *.aux
 *.log
@@ -25,7 +29,6 @@ Thumbs.db
 
 # Project Specific
 dataset/
-outputs/
 checkpoints/
 logs/
 wandb/
@@ -36,3 +39,4 @@ pdf_content.txt
 pdf_content_extracted.txt
 pdf_dump.txt
 track1_details_extracted.txt
+staged.diff

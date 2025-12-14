@@ -1,6 +1,7 @@
 import sapien
 import numpy as np
 import tyro
+from sapien.pysapien.render import RenderCameraComponent
 
 def demo(fix_root_link: bool = True, balance_passive_force: bool = True):
     scene = sapien.Scene()
@@ -31,16 +32,14 @@ def demo(fix_root_link: bool = True, balance_passive_force: bool = True):
     print("links names:", [link.name for link in robot.get_links()])
     # get link to attach camera
     camera_link = [link for link in robot.get_links() if "camera" in link.name][0]
-    mounted_camera = scene.add_mounted_camera(
-        name="mounted_camera",
-        mount=camera_link.entity,
-        pose=sapien.Pose(np.eye(4)),
-        width=640,
-        height=480,
-        fovy=np.deg2rad(50),
-        near=0.01,
-        far=100,
-    )
+    
+    mounted_camera = RenderCameraComponent(width=640, height=480)
+    mounted_camera.set_fovy(np.deg2rad(50), compute_x=True)
+    mounted_camera.near = 0.01
+    mounted_camera.far = 100
+    mounted_camera.set_local_pose(sapien.Pose(np.eye(4)))
+    camera_link.entity.add_component(mounted_camera)
+    mounted_camera.name = "mounted_camera"
 
     while not viewer.closed:
         for _ in range(4):  # render every 4 steps

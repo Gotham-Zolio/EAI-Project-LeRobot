@@ -1,34 +1,15 @@
-#!/usr/bin/env python3
-import os
-import itertools
-
 import numpy as np
-import cv2
-import tyro
 import sapien
 from sapien.pysapien.render import RenderCameraComponent
-from sapien.core import Entity, Pose
+from sapien import Entity, Pose
 from PIL import Image, ImageDraw, ImageFont
 from scipy.spatial.transform import Rotation as R
+from lerobot.common.camera import (
+    FRONT_CAM_W, FRONT_CAM_H, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY
+)
 
 # ---------------- Global Constants ----------------
 CM = 0.01
-
-# Front camera intrinsics
-FRONT_CAM_W = 640
-FRONT_CAM_H = 480
-FRONT_FX = 570.21740069
-FRONT_FY = 570.17974410
-FRONT_CX = FRONT_CAM_W / 2
-FRONT_CY = FRONT_CAM_H / 2
-
-# Distortion coefficients (for applying to front camera image)
-K1 = -0.735413911
-K2 = 0.949258417
-P1 = 0.000189059
-P2 = -0.002003513
-K3 = -0.864150312
-
 
 # ---------------- Utility / Scene building ----------------
 def add_box(scene, center, size, color):
@@ -70,18 +51,21 @@ def load_arm(scene, urdf_path, root_x):
     arm = loader.load(urdf_path)
 
     quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
-    quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
+    quat_sapien = np.array(
+        [quat[3], quat[0], quat[1], quat[2]],
+        dtype=np.float32
+    )
 
-    temp_pose = sapien.Pose(p=[root_x, 0.0, 0.0], q=quat_sapien)
-    arm.set_root_pose(temp_pose)
+    arm.set_root_pose(sapien.Pose([root_x, 0.0, 0.0], quat_sapien))
 
-    aabb_min, _ = arm.get_links()[0].get_global_aabb_fast()
-    root_y = -aabb_min[1]
+    base_link = arm.get_links()[0]
+    aabb_min, aabb_max = base_link.get_global_aabb_fast()
+    root_y = -aabb_max[1]
 
-    pose = sapien.Pose(p=[root_x, root_y, 0.0], q=quat_sapien)
-    arm.set_root_pose(pose)
+    arm.set_root_pose(sapien.Pose([root_x, root_y, 0.0], quat_sapien))
 
     return arm
+
 
 
 def add_wrist_camera(robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.05, near=0.01, far=5.0):
@@ -104,10 +88,9 @@ def add_wrist_camera(robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.0
 
     cam = RenderCameraComponent(width=cam_w, height=cam_h)
     cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
-    # attach camera component to the link's entity
+
     link.entity.add_component(cam)
 
-    # local pose: lift it a bit along link's local z and rotate to look down
     offset = np.array([0.0, 0.0, z_offset], dtype=np.float32)
     quat = R.from_euler('xyz', [-np.pi/2, 0.0, 0.0]).as_quat()  # xyzw
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]         # wxyz
@@ -116,35 +99,13 @@ def add_wrist_camera(robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.0
     return cam
 
 
-def apply_distortion(img, fx, fy, cx, cy, k1=K1, k2=K2, p1=P1, p2=P2, k3=K3):
-    """
-    Apply radial + tangential distortion to an image (numpy array HxWxC uint8).
-    fx,fy,cx,cy should match the camera intrinsics used to render the image.
-    """
-    h, w = img.shape[:2]
-    xs, ys = np.meshgrid(np.arange(w), np.arange(h))
-    xd = (xs - cx) / fx
-    yd = (ys - cy) / fy
-    r2 = xd * xd + yd * yd
-    r4 = r2 * r2
-    r6 = r4 * r2
-
-    radial = 1 + k1 * r2 + k2 * r4 + k3 * r6
-    x = (xd - 2 * p1 * xd * yd - p2 * (r2 + 2 * xd * xd)) / radial
-    y = (yd - p1 * (r2 + 2 * yd * yd) - 2 * p2 * xd * yd) / radial
-    u = (x * fx + cx).astype(np.float32)
-    v = (y * fy + cy).astype(np.float32)
-
-    distorted_img = cv2.remap(img, u, v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-    return distorted_img
-
-
-def add_block(scene, center, color, label="A"):
+def add_block(scene, center, color, label="A", rotation_z=0.0):
     """
     Add a colored block to the scene.
     center: [x,y,z] in meters (world frame)
     color: [r,g,b,a] values in 0..1
     label: a short text label (drawn onto a PIL image; SAPIEN 3.0 does not support set_texture here)
+    rotation_z: rotation around z-axis in radians
     """
     size = [3 * CM, 3 * CM, 3 * CM]
 
@@ -157,7 +118,6 @@ def add_block(scene, center, color, label="A"):
 
     actor = actor_builder.build()
 
-    # create a small label image (we keep this for reference; applying to visual requires API not present)
     tex_size = 256
     img = Image.new("RGBA", (tex_size, tex_size),
                     (int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255))
@@ -168,12 +128,9 @@ def add_block(scene, center, color, label="A"):
     draw.text(((tex_size - w) / 2, (tex_size - h) / 2), label, fill=(255, 255, 255, 255), font=font)
     tex_np = np.array(img).astype(np.float32) / 255.0
 
-    # Note: SAPIEN 3.x RenderVisual.set_texture may not exist in your build.
-    # If you have an API to set texture, you can apply `tex_np` to the visual here.
-    # visual = actor.get_render_body().visuals[0]
-    # visual.set_texture(tex_np)
-
-    actor.set_pose(sapien.Pose(center))
+    quat = R.from_euler('z', rotation_z).as_quat()
+    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
+    actor.set_pose(sapien.Pose(center, quat_sapien))
     return actor
 
 
@@ -215,14 +172,14 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     front_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
     cam_mount.add_component(front_cam)
 
-    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 40.7 * CM
+    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 30.7 * CM
     quat = R.from_euler('xyz', [0.0, np.pi / 2, -np.pi / 2]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
     scene.add_entity(cam_mount)
 
     # ------ Robot arms ------
-    urdf_path = "reference-scripts/assets/SO101/so101.urdf"
+    urdf_path = "assets/SO101/so101.urdf"
     left_arm = load_arm(scene, urdf_path, root_x=11.9 * CM)
     right_arm = load_arm(scene, urdf_path, root_x=48.1 * CM)
 
@@ -234,69 +191,43 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
 
 
 # ---------------- Scene configurations ----------------
+def get_random_pose(x_range, y_range, z_height):
+    x = np.random.uniform(*x_range)
+    y = np.random.uniform(*y_range)
+    z = z_height
+    rot_z = np.random.uniform(0, 2 * np.pi)
+    return [x, y, z], rot_z
+
 def setup_scene_1(scene):
-    """Scene 1: one red block in the leftmost box"""
-    add_block(scene, center=[12 * CM, 25 * CM, 1.5 * CM], color=[1.0, 0.0, 0.0, 1.0], label="Red")
+    """Scene 1: one red block in the rightmost box"""
+    # x in 41.1~54.7cm, y in 18.3~31.7cm
+    pos, rot = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+    add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
 
 
 def setup_scene_2(scene):
-    """Scene 2: red + green in leftmost box (different locs)"""
-    add_block(scene, center=[8 * CM, 22 * CM, 1.5 * CM], color=[1.0, 0.0, 0.0, 1.0], label="R")
-    add_block(scene, center=[16 * CM, 28 * CM, 1.5 * CM], color=[0.0, 0.8, 0.0, 1.0], label="G")
+    """Scene 2: red + green in rightmost box"""
+    # x in 41.1~54.7cm, y in 18.3~31.7cm, dist >= 4.5cm
+    while True:
+        pos1, rot1 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+        pos2, rot2 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+        dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
+        if dist >= 4.5 * CM:
+            break
+            
+    add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="R", rotation_z=rot1)
+    add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
 
 
 def setup_scene_3(scene):
     """Scene 3: red + green in the middle box"""
-    add_block(scene, center=[27 * CM, 23 * CM, 1.5 * CM], color=[1.0, 0.0, 0.0, 1.0], label="R")
-    add_block(scene, center=[33 * CM, 27 * CM, 1.5 * CM], color=[0.0, 0.8, 0.0, 1.0], label="G")
+    # x in 23.7~36.3cm, y in 18.3~31.7cm, dist >= 4.5cm
+    while True:
+        pos1, rot1 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+        pos2, rot2 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+        dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
+        if dist >= 4.5 * CM:
+            break
 
-
-# ---------------- Main ----------------
-if __name__ == "__main__":
-    from dataclasses import dataclass
-
-    @dataclass
-    class Args:
-        headless: bool = True
-        scene: int = 0  # 0,1,2,3
-
-    args = tyro.cli(Args)
-
-    if args.scene not in [0, 1, 2, 3]:
-        raise ValueError("scene must be 0, 1, 2 or 3")
-
-    scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam = create_scene(headless=args.headless)
-
-    # populate blocks according to requested scene
-    if args.scene == 1:
-        setup_scene_1(scene)
-    elif args.scene == 2:
-        setup_scene_2(scene)
-    elif args.scene == 3:
-        setup_scene_3(scene)
-
-    # headless rendering / save images
-    if args.headless:
-        # step a bit to let physics settle
-        for _ in range(60):
-            scene.step()
-        scene.update_render()
-
-        os.makedirs("logs/scene", exist_ok=True)
-
-        # front camera
-        front_cam.take_picture()
-        rgba = (front_cam.get_picture("Color") * 255).astype("uint8")
-        rgba = apply_distortion(rgba, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY)
-        Image.fromarray(rgba).save(os.path.join("logs/scene", f"front_camera_scene{args.scene}.png"))
-
-        # wrist cameras
-        left_wrist_cam.take_picture()
-        lw_img = (left_wrist_cam.get_picture("Color") * 255).astype("uint8")
-        Image.fromarray(lw_img).save(os.path.join("logs/scene", f"left_wrist_camera_scene{args.scene}.png"))
-
-        right_wrist_cam.take_picture()
-        rw_img = (right_wrist_cam.get_picture("Color") * 255).astype("uint8")
-        Image.fromarray(rw_img).save(os.path.join("logs/scene", f"right_wrist_camera_scene{args.scene}.png"))
-
-        print(f"Saved front and wrist camera images for scene {args.scene} in logs/scene/")
+    add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="R", rotation_z=rot1)
+    add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
