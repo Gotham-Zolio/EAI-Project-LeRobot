@@ -1,5 +1,12 @@
-import json
+import sys
 import os
+
+# Add src to path to allow importing local lerobot modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.join(current_dir, "../src")
+sys.path.insert(0, src_path)
+
+import json
 from pathlib import Path
 
 import hydra
@@ -10,6 +17,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+# Now these imports should work from src/lerobot
 from lerobot.common.dataset import LeRobotDataset
 from lerobot.policy.diffusion import DiffusionPolicy
 
@@ -47,14 +55,19 @@ def unnormalize(data, stats, key):
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train")
 def train(cfg: DictConfig):
-    print(f"Training with config:\n{cfg}")
+    print("Entered train function", flush=True)
+    print(f"Training with config:\n{cfg}", flush=True)
     
+    print("Checking device...", flush=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print(f"Using device: {device}", flush=True)
 
     # 1. Dataset
+    print("Loading dataset...", flush=True)
+    # Use local dataset implementation which handles missing files
     dataset = LeRobotDataset(root="data", repo_id="lift", split="train")
-    dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4)
+    print(f"Dataset loaded with {len(dataset)} items", flush=True)
+    dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0) 
     
     # Load stats for normalization
     stats = get_stats("data", "lift")
@@ -65,6 +78,7 @@ def train(cfg: DictConfig):
     action_dim = sample_item["action"].shape[0]
     obs_dim = sample_item["observation.state"].shape[0]
     
+    print("Initializing policy...", flush=True)
     policy = DiffusionPolicy(
         action_dim=action_dim,
         obs_dim=obs_dim,
@@ -78,6 +92,7 @@ def train(cfg: DictConfig):
     num_epochs = cfg.epochs
     save_dir = Path(hydra.core.hydra_config.HydraConfig.get().run.dir)
     
+    print("Starting training loop...", flush=True)
     for epoch in range(num_epochs):
         policy.train()
         pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")
@@ -101,7 +116,7 @@ def train(cfg: DictConfig):
             pbar.set_postfix({"loss": loss.item()})
             
         avg_loss = epoch_loss / len(dataloader)
-        print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}", flush=True)
         
         # Save checkpoint
         if (epoch + 1) % cfg.save_freq == 0:
@@ -112,9 +127,9 @@ def train(cfg: DictConfig):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
             }, checkpoint_path)
-            print(f"Saved checkpoint to {checkpoint_path}")
+            print(f"Saved checkpoint to {checkpoint_path}", flush=True)
 
-    print("Training complete.")
+    print("Training complete.", flush=True)
 
 if __name__ == "__main__":
     train()

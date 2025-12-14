@@ -168,10 +168,27 @@ class LeRobotDataset(Dataset):
                         item[key] = torch.zeros((3, 480, 640), dtype=torch.float32)
                     continue
 
-                frame = self._load_frame(str(video_path), frame_idx)
-                # Convert to torch (C, H, W) and float 0-1
-                frame = torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0
-                item[key] = frame
+                try:
+                    frame = self._load_frame(str(video_path), frame_idx)
+                    # Convert to torch (C, H, W) and float 0-1
+                    frame = torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0
+                    item[key] = frame
+                except RuntimeError as e:
+                    # Warn once
+                    if not hasattr(self, "_warned_read_error"):
+                        print(f"Warning: Failed to read frame from {video_path}: {e}. Returning zeros.")
+                        self._warned_read_error = True
+                    
+                    # Return zeros
+                    if key in self.features and "shape" in self.features[key]:
+                        shape = self.features[key]["shape"]
+                        if len(shape) == 3:
+                            h, w, c = shape
+                            item[key] = torch.zeros((c, h, w), dtype=torch.float32)
+                        else:
+                            item[key] = torch.zeros((3, 480, 640), dtype=torch.float32)
+                    else:
+                        item[key] = torch.zeros((3, 480, 640), dtype=torch.float32)
                 
         return item
 
@@ -205,8 +222,9 @@ class LeRobotDataset(Dataset):
         return frame
         
     def __del__(self):
-        for cap in self.cap_cache.values():
-            cap.release()
+        if hasattr(self, "cap_cache"):
+            for cap in self.cap_cache.values():
+                cap.release()
 
 if __name__ == "__main__":
     # Test the dataset

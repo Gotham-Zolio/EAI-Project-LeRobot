@@ -13,6 +13,7 @@ src/lerobot/common/kinematics.py
 src/lerobot/envs/__init__.py
 src/lerobot/envs/gym_env.py
 src/lerobot/envs/sapien_env.py
+src/lerobot/policy/diffusion.py
 src/lerobot/policy/scripted.py
 src/lerobot/real/camera.py
 src/lerobot/real/robot.py

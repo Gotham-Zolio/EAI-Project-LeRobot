@@ -176,7 +176,7 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     front_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
     cam_mount.add_component(front_cam)
 
-    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 40.7 * CM
+    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 20.7 * CM
     quat = R.from_euler('xyz', [0.0, np.pi / 2, -np.pi / 2]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
