@@ -29,7 +29,6 @@ Thumbs.db
 
 # Project Specific
 dataset/
-outputs/
 checkpoints/
 logs/
 wandb/

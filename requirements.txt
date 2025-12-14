@@ -26,3 +26,10 @@ diffusers>=0.28,<0.30
 fsspec<2025.8
 datasets>=2.14,<3.0
 av>=15,<16
+
+# --- Monitoring ---
+tensorboard>=2.20,<2.21
+absl-py>=0.4
+grpcio>=1.48.2
+markdown>=2.6.8
+tensorboard-data-server>=0.7.0,<0.8.0

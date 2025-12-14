@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.optim as optim
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 # Now these imports should work from src/lerobot
@@ -53,21 +54,26 @@ def unnormalize(data, stats, key):
     return data * (std + 1e-8) + mean
 
 
+import logging
+
+# Configure logging
+log = logging.getLogger(__name__)
+
 @hydra.main(version_base=None, config_path="../configs", config_name="train")
 def train(cfg: DictConfig):
-    print("Entered train function", flush=True)
-    print(f"Training with config:\n{cfg}", flush=True)
+    log.info("Entered train function")
+    log.info(f"Training with config:\n{cfg}")
     
-    print("Checking device...", flush=True)
+    log.info("Checking device...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}", flush=True)
+    log.info(f"Using device: {device}")
 
     # 1. Dataset
-    print("Loading dataset...", flush=True)
+    log.info("Loading dataset...")
     # Use local dataset implementation which handles missing files
     dataset = LeRobotDataset(root="data", repo_id="lift", split="train")
-    print(f"Dataset loaded with {len(dataset)} items", flush=True)
-    dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0) 
+    log.info(f"Dataset loaded with {len(dataset)} items")
+    dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0)
     
     # Load stats for normalization
     stats = get_stats("data", "lift")
@@ -78,7 +84,7 @@ def train(cfg: DictConfig):
     action_dim = sample_item["action"].shape[0]
     obs_dim = sample_item["observation.state"].shape[0]
     
-    print("Initializing policy...", flush=True)
+    log.info("Initializing policy...")
     policy = DiffusionPolicy(
         action_dim=action_dim,
         obs_dim=obs_dim,
@@ -92,7 +98,11 @@ def train(cfg: DictConfig):
     num_epochs = cfg.epochs
     save_dir = Path(hydra.core.hydra_config.HydraConfig.get().run.dir)
     
-    print("Starting training loop...", flush=True)
+    # Initialize TensorBoard writer
+    writer = SummaryWriter(log_dir=str(save_dir / "logs"))
+    global_step = 0
+
+    log.info("Starting training loop...")
     for epoch in range(num_epochs):
         policy.train()
         pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")
@@ -115,8 +125,13 @@ def train(cfg: DictConfig):
             epoch_loss += loss.item()
             pbar.set_postfix({"loss": loss.item()})
             
+            # Log to TensorBoard
+            writer.add_scalar("Loss/train", loss.item(), global_step)
+            global_step += 1
+            
         avg_loss = epoch_loss / len(dataloader)
-        print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}", flush=True)
+        log.info(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
+        writer.add_scalar("Loss/epoch", avg_loss, epoch)
         
         # Save checkpoint
         if (epoch + 1) % cfg.save_freq == 0:
@@ -127,9 +142,10 @@ def train(cfg: DictConfig):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
             }, checkpoint_path)
-            print(f"Saved checkpoint to {checkpoint_path}", flush=True)
+            log.info(f"Saved checkpoint to {checkpoint_path}")
 
-    print("Training complete.", flush=True)
+    writer.close()
+    log.info("Training complete.")
 
 if __name__ == "__main__":
     train()

@@ -22,7 +22,7 @@ if __name__ == "__main__":
         raise ValueError("scene must be 0, 1, 2 or 3")
 
     scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam = create_scene(headless=args.headless)
-
+    
     # populate blocks according to requested scene
     if args.scene == 1:
         setup_scene_1(scene)
@@ -38,21 +38,21 @@ if __name__ == "__main__":
             scene.step()
         scene.update_render()
 
-        os.makedirs("logs/scene", exist_ok=True)
+        os.makedirs("logs/simulation/captures", exist_ok=True)
 
         # front camera
         front_cam.take_picture()
         rgba = (front_cam.get_picture("Color") * 255).astype("uint8")
         rgba = apply_distortion(rgba, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY)
-        Image.fromarray(rgba).save(os.path.join("logs/scene", f"front_camera_scene{args.scene}.png"))
+        Image.fromarray(rgba).save(os.path.join("logs/simulation/captures", f"front_camera_scene{args.scene}.png"))
 
         # wrist cameras
         left_wrist_cam.take_picture()
         lw_img = (left_wrist_cam.get_picture("Color") * 255).astype("uint8")
-        Image.fromarray(lw_img).save(os.path.join("logs/scene", f"left_wrist_camera_scene{args.scene}.png"))
+        Image.fromarray(lw_img).save(os.path.join("logs/simulation/captures", f"left_wrist_camera_scene{args.scene}.png"))
 
         right_wrist_cam.take_picture()
         rw_img = (right_wrist_cam.get_picture("Color") * 255).astype("uint8")
-        Image.fromarray(rw_img).save(os.path.join("logs/scene", f"right_wrist_camera_scene{args.scene}.png"))
+        Image.fromarray(rw_img).save(os.path.join("logs/simulation/captures", f"right_wrist_camera_scene{args.scene}.png"))
 
-        print(f"Saved front and wrist camera images for scene {args.scene} in logs/scene/")
+        print(f"Saved front and wrist camera images for scene {args.scene} in logs/simulation/captures/")

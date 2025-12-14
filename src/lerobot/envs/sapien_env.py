@@ -51,18 +51,21 @@ def load_arm(scene, urdf_path, root_x):
     arm = loader.load(urdf_path)
 
     quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
-    quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
+    quat_sapien = np.array(
+        [quat[3], quat[0], quat[1], quat[2]],
+        dtype=np.float32
+    )
 
-    temp_pose = sapien.Pose(p=[root_x, 0.0, 0.0], q=quat_sapien)
-    arm.set_root_pose(temp_pose)
+    arm.set_root_pose(sapien.Pose([root_x, 0.0, 0.0], quat_sapien))
 
-    aabb_min, _ = arm.get_links()[0].get_global_aabb_fast()
-    root_y = -aabb_min[1]
+    base_link = arm.get_links()[0]
+    aabb_min, aabb_max = base_link.get_global_aabb_fast()
+    root_y = -aabb_max[1]
 
-    pose = sapien.Pose(p=[root_x, root_y, 0.0], q=quat_sapien)
-    arm.set_root_pose(pose)
+    arm.set_root_pose(sapien.Pose([root_x, root_y, 0.0], quat_sapien))
 
     return arm
+
 
 
 def add_wrist_camera(robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.05, near=0.01, far=5.0):
@@ -85,10 +88,9 @@ def add_wrist_camera(robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.0
 
     cam = RenderCameraComponent(width=cam_w, height=cam_h)
     cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
-    # attach camera component to the link's entity
+
     link.entity.add_component(cam)
 
-    # local pose: lift it a bit along link's local z and rotate to look down
     offset = np.array([0.0, 0.0, z_offset], dtype=np.float32)
     quat = R.from_euler('xyz', [-np.pi/2, 0.0, 0.0]).as_quat()  # xyzw
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]         # wxyz
@@ -116,7 +118,6 @@ def add_block(scene, center, color, label="A", rotation_z=0.0):
 
     actor = actor_builder.build()
 
-    # create a small label image (we keep this for reference; applying to visual requires API not present)
     tex_size = 256
     img = Image.new("RGBA", (tex_size, tex_size),
                     (int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255))
@@ -126,11 +127,6 @@ def add_block(scene, center, color, label="A", rotation_z=0.0):
     w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
     draw.text(((tex_size - w) / 2, (tex_size - h) / 2), label, fill=(255, 255, 255, 255), font=font)
     tex_np = np.array(img).astype(np.float32) / 255.0
-
-    # Note: SAPIEN 3.x RenderVisual.set_texture may not exist in your build.
-    # If you have an API to set texture, you can apply `tex_np` to the visual here.
-    # visual = actor.get_render_body().visuals[0]
-    # visual.set_texture(tex_np)
 
     quat = R.from_euler('z', rotation_z).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
@@ -176,7 +172,7 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     front_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
     cam_mount.add_component(front_cam)
 
-    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 20.7 * CM
+    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 30.7 * CM
     quat = R.from_euler('xyz', [0.0, np.pi / 2, -np.pi / 2]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
