@@ -69,14 +69,14 @@ def train(cfg: DictConfig):
     log.info(f"Using device: {device}")
 
     # 1. Dataset
-    log.info("Loading dataset...")
+    log.info(f"Loading dataset: {cfg.task}...")
     # Use local dataset implementation which handles missing files
-    dataset = LeRobotDataset(root="data", repo_id="lift", split="train")
+    dataset = LeRobotDataset(root="data", repo_id=cfg.task, split="train")
     log.info(f"Dataset loaded with {len(dataset)} items")
     dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0)
     
     # Load stats for normalization
-    stats = get_stats("data", "lift")
+    stats = get_stats("data", cfg.task)
 
     # 2. Model
     # Get dimensions from dataset

@@ -99,6 +99,14 @@ To evaluate a trained checkpoint in the simulation:
 python scripts/eval.py --checkpoint logs/train/2025-12-14/13-13-50/checkpoints/last.pth
 ```
 
+### 5. Video Conversion
+
+To ensure compatibility (e.g., for web visualization) and standardize video formats (H.264, yuv420p), you can use the provided helper script. Ensure `ffmpeg` is installed.
+
+```bash
+bash tools/convert_videos.sh
+```
+
 ## 👥 Team
 - Guanheng Chen
 - Zuo Gou
