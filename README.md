@@ -56,48 +56,76 @@ EAI-Project-LeRobot/
 
 ## 🛠️ Usage
 
+
 ### 1. Installation
 
+We recommend using **conda** to manage your Python environment:
+
 ```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+# Create conda environment
+conda create -n lerobot python=3.10
+conda activate lerobot
 
 # Install dependencies
 python -m pip install -r requirements.txt
 ```
 
-### 2. Training
 
-To train the Diffusion Policy on the Lift task:
+### 2. Data Preparation
 
-```bash
-python scripts/train.py batch_size=8
-```
+Download the demonstration datasets from:
 
-You can modify configurations in `configs/train.yaml` or override them via command line.
+https://cloud.tsinghua.edu.cn/d/2687cde6d00b46b7a6db/
 
-### 3. Visualization
+Extract all contents into the `data/` directory.
 
-To visualize training loss curves:
+**Video Conversion:**
+If you encounter video playback issues (e.g., in browsers or some video tools), or need to ensure all videos are in a standard format (H.264, yuv420p), run the following (requires `ffmpeg`):
 
 ```bash
-python scripts/visualize_training.py
+bash tools/convert_videos.sh
 ```
+This will re-encode all `.mp4` files in `data/` to a compatible format. Only run this if you experience compatibility problems or need to process videos for web visualization.
 
-To monitor with TensorBoard:
+
+### 3. Training
+
+To train the Diffusion Policy for a specific task (e.g., lift, sort, stack):
 
 ```bash
-tensorboard --logdir logs/train
+python scripts/train.py task=<task>
 ```
 
-### 4. Evaluation
+Replace `<task>` with `lift`, `sort`, or `stack` as needed. You can modify configurations in `configs/train.yaml` or override them via command line.
 
-To evaluate a trained checkpoint in the simulation:
+
+### 4. Visualization
+
+To visualize training loss curves for a specific task:
 
 ```bash
-python scripts/eval.py --checkpoint logs/train/2025-12-14/13-13-50/checkpoints/last.pth
+python scripts/visualize_training.py --task <task>
 ```
+
+To monitor with TensorBoard for a specific task:
+
+```bash
+tensorboard --logdir logs/train/<task>
+```
+
+Replace `<task>` with `lift`, `sort`, or `stack` as needed.
+
+
+
+### 5. Evaluation
+
+To evaluate a trained checkpoint in the simulation for a specific task and enable the web viewer:
+
+```bash
+python scripts/eval.py --checkpoint logs/train/<task>/<date>/<time>/checkpoint_XXX.pth --task <task> --web-viewer
+```
+
+Replace `<task>` with `lift`, `sort`, or `stack` as needed. When `--web-viewer` is enabled, open [http://localhost:5000](http://localhost:5000) in your browser to view live camera streams and record videos/screenshots during evaluation.
 
 ## 👥 Team
 - Guanheng Chen
