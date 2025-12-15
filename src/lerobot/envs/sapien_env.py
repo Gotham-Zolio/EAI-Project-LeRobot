@@ -20,7 +20,7 @@ def add_box(scene, center, size, color):
     material.base_color = np.array(color)
     actor_builder.add_box_collision(half_size=half)
     actor_builder.add_box_visual(half_size=half, material=material)
-    actor = actor_builder.build()
+    actor = actor_builder.build_static()
     actor.set_pose(sapien.Pose(center))
     return actor
 
@@ -40,7 +40,7 @@ def add_floor(scene):
     builder.add_box_collision(half_size=half)
     builder.add_box_visual(half_size=half, material=material)
 
-    floor = builder.build()
+    floor = builder.build_static()
     floor.set_pose(sapien.Pose([width/2, height/2, -thickness/2]))
     return floor
 
@@ -49,6 +49,10 @@ def load_arm(scene, urdf_path, root_x):
     loader = scene.create_urdf_loader()
     loader.fix_root_link = True
     arm = loader.load(urdf_path)
+
+    # Set drive properties for position control
+    for joint in arm.get_active_joints():
+        joint.set_drive_property(stiffness=200, damping=10)
 
     quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
     quat_sapien = np.array(
@@ -172,7 +176,7 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     front_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
     cam_mount.add_component(front_cam)
 
-    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 30.7 * CM
+    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 40.7 * CM
     quat = R.from_euler('xyz', [0.0, np.pi / 2, -np.pi / 2]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
@@ -231,3 +235,13 @@ def setup_scene_3(scene):
 
     add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="R", rotation_z=rot1)
     add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
+
+def setup_scene(scene, task_name):
+    if task_name == "lift":
+        setup_scene_1(scene)
+    elif task_name == "sort":
+        setup_scene_2(scene)
+    elif task_name == "stack":
+        setup_scene_3(scene)
+    else:
+        raise ValueError(f"Unknown task: {task_name}")

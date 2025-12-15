@@ -5,7 +5,7 @@ defaults:
 
 hydra:
   run:
-    dir: logs/train/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: logs/train/${task}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 task: lift
 batch_size: 8
