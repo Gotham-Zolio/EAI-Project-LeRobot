@@ -2,13 +2,13 @@ import gymnasium as gym
 import numpy as np
 import sapien
 from gymnasium import spaces
-from lerobot.envs.sapien_env import create_scene, setup_scene_1, setup_scene_2, setup_scene_3
+from lerobot.envs.sapien_env import create_scene, setup_scene
 from lerobot.common.camera import apply_distortion, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY
 
 class LeRobotGymEnv(gym.Env):
-    def __init__(self, task="Lift", headless=True, max_steps=500):
+    def __init__(self, task="lift", headless=True, max_steps=500):
         super().__init__()
-        self.task = task
+        self.task = task.lower()
         self.headless = headless
         self.max_steps = max_steps
         self.current_step = 0
@@ -18,14 +18,7 @@ class LeRobotGymEnv(gym.Env):
         self.left_wrist_cam, self.right_wrist_cam = create_scene(headless=headless)
         
         # Setup Task Specifics
-        if task == "Lift":
-            setup_scene_1(self.scene)
-        elif task == "Sort":
-            setup_scene_2(self.scene)
-        elif task == "Stack":
-            setup_scene_3(self.scene)
-        else:
-            raise ValueError(f"Unknown task: {task}")
+        setup_scene(self.scene, self.task)
 
         # Setup Robot Controllers (Joint Position Control)
         self._setup_controllers(self.left_arm)
@@ -107,7 +100,7 @@ class LeRobotGymEnv(gym.Env):
         
         self.right_wrist_cam.take_picture()
         right_wrist_img = (self.right_wrist_cam.get_picture("Color") * 255).astype(np.uint8)
-
+        
         # Proprioception
         left_qpos = self.left_arm.get_qpos()
         right_qpos = self.right_arm.get_qpos()

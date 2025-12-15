@@ -202,15 +202,15 @@ def get_random_pose(x_range, y_range, z_height):
     rot_z = np.random.uniform(0, 2 * np.pi)
     return [x, y, z], rot_z
 
-def setup_scene_1(scene):
-    """Scene 1: one red block in the rightmost box"""
+def setup_scene_lift(scene):
+    """Task Lift: one red block in the rightmost box"""
     # x in 41.1~54.7cm, y in 18.3~31.7cm
     pos, rot = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
     add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
 
 
-def setup_scene_2(scene):
-    """Scene 2: red + green in rightmost box"""
+def setup_scene_sort(scene):
+    """Task Sort: red + green in rightmost box"""
     # x in 41.1~54.7cm, y in 18.3~31.7cm, dist >= 4.5cm
     while True:
         pos1, rot1 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
@@ -223,8 +223,8 @@ def setup_scene_2(scene):
     add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
 
 
-def setup_scene_3(scene):
-    """Scene 3: red + green in the middle box"""
+def setup_scene_stack(scene):
+    """Task Stack: red + green in the middle box"""
     # x in 23.7~36.3cm, y in 18.3~31.7cm, dist >= 4.5cm
     while True:
         pos1, rot1 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
@@ -237,11 +237,13 @@ def setup_scene_3(scene):
     add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
 
 def setup_scene(scene, task_name):
-    if task_name == "lift":
-        setup_scene_1(scene)
+    if task_name == "default":
+        pass
+    elif task_name == "lift":
+        setup_scene_lift(scene)
     elif task_name == "sort":
-        setup_scene_2(scene)
+        setup_scene_sort(scene)
     elif task_name == "stack":
-        setup_scene_3(scene)
+        setup_scene_stack(scene)
     else:
         raise ValueError(f"Unknown task: {task_name}")

@@ -70,8 +70,20 @@ conda activate lerobot
 python -m pip install -r requirements.txt
 ```
 
+### 2. Simulation Environment Setup
 
-### 2. Data Preparation
+Before preparing data, verify your simulation environment by running the demo script for a specific task:
+
+```bash
+python scripts/sim_env_demo.py --task <task>
+```
+
+Replace `<task>` with `lift`, `sort`, or `stack` as needed. The script will generate images in the corresponding folder:
+- `logs/simulation/<task>/`
+
+
+
+### 3. Data Preparation
 
 Download the demonstration datasets from:
 
@@ -88,7 +100,8 @@ bash tools/convert_videos.sh
 This will re-encode all `.mp4` files in `data/` to a compatible format. Only run this if you experience compatibility problems or need to process videos for web visualization.
 
 
-### 3. Training
+
+### 4. Training
 
 To train the Diffusion Policy for a specific task (e.g., lift, sort, stack):
 
@@ -97,6 +110,9 @@ python scripts/train.py task=<task>
 ```
 
 Replace `<task>` with `lift`, `sort`, or `stack` as needed. You can modify configurations in `configs/train.yaml` or override them via command line.
+
+After training, model weights and logs can be found in:
+- `logs/train/<task>/<date>/<time>/`
 
 
 ### 4. Visualization

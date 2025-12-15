@@ -46,7 +46,7 @@ class LiftPolicy:
         # Find the red block
         target_actor = None
         for actor in self.env.scene.get_all_actors():
-            # In setup_scene_1, we add a block. It usually gets a default name or we can find it by visual
+            # In setup_scene_lift, we add a block. It usually gets a default name or we can find it by visual
             # But here we just look for the last added actor which is likely the block
             # Or we can check the user data if we set it.
             # Since we didn't set names explicitly in add_block (it returns actor), 
