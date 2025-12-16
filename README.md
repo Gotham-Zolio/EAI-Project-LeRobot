@@ -57,7 +57,7 @@ EAI-Project-LeRobot/
 ## 🛠️ Usage
 
 
-### 1. Installation
+#### 1. Installation
 
 We recommend using **conda** to manage your Python environment:
 
@@ -70,7 +70,8 @@ conda activate lerobot
 python -m pip install -r requirements.txt
 ```
 
-### 2. Simulation Environment Setup
+
+#### 2. Simulation Environment Setup
 
 Before preparing data, verify your simulation environment by running the demo script for a specific task:
 
@@ -83,7 +84,8 @@ Replace `<task>` with `lift`, `sort`, or `stack` as needed. The script will gene
 
 
 
-### 3. Data Preparation
+
+#### 3. Data Preparation
 
 Download the demonstration datasets from:
 
@@ -101,7 +103,8 @@ This will re-encode all `.mp4` files in `data/` to a compatible format. Only run
 
 
 
-### 4. Training
+
+#### 4. Training
 
 To train the Diffusion Policy for a specific task (e.g., lift, sort, stack):
 
@@ -115,7 +118,8 @@ After training, model weights and logs can be found in:
 - `logs/train/<task>/<date>/<time>/`
 
 
-### 4. Visualization
+
+#### 5. Visualization
 
 To visualize training loss curves for a specific task:
 
@@ -133,7 +137,8 @@ Replace `<task>` with `lift`, `sort`, or `stack` as needed.
 
 
 
-### 5. Evaluation
+
+#### 6. Evaluation
 
 To evaluate a trained checkpoint in the simulation for a specific task and enable the web viewer:
 
