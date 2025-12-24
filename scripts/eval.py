@@ -145,11 +145,16 @@ def main(checkpoint_path, task, device="cuda", save_video=False, web_viewer=Fals
         # Capture Observation
         # 1. State
         # We need to construct the state vector exactly as the dataset has it.
-        # The dataset 'lift' only has 6 dimensions (joint positions)
-        qpos = left_arm.get_qpos()
-        # qvel = left_arm.get_qvel()
-        # state_vec = np.concatenate([qpos, qvel]).astype(np.float32)
-        state_vec = qpos.astype(np.float32)
+        if task == 'lift' or task == 'stack':
+            qpos = right_arm.get_qpos()
+            state_vec = qpos.astype(np.float32)
+        elif task == 'sort':
+            qpos_left = left_arm.get_qpos()
+            qpos_right = right_arm.get_qpos()
+            state_vec = np.concatenate([qpos_left, qpos_right]).astype(np.float32)
+        else:
+            qpos = left_arm.get_qpos()
+            state_vec = qpos.astype(np.float32)
         
         # 2. Images
         # SAPIEN 3.x: cam.take_picture(), then cam.get_picture("Color")
@@ -246,17 +251,27 @@ def main(checkpoint_path, task, device="cuda", save_video=False, web_viewer=Fals
         # Apply Action
         # Assuming action is joint position targets
         # SAPIEN 3.x: set_qpos is for teleportation, set_drive_target is for control
-        # But PhysxArticulation doesn't have set_drive_target directly, it's on the joints (active_joints)
-        # Or we can use set_qpos if we just want to visualize the result (kinematic replay)
-        # But for control, we should set drive targets on active joints.
         
-        # Correct way for SAPIEN 3 Articulation control:
-        # left_arm.set_qpos(action_np) # This is teleportation
-        
-        # For control:
-        active_joints = left_arm.get_active_joints()
-        for i, joint in enumerate(active_joints):
-            joint.set_drive_target(action_np[i])
+        if task == 'lift' or task == 'stack':
+            active_joints = right_arm.get_active_joints()
+            for i, joint in enumerate(active_joints):
+                joint.set_drive_target(action_np[i])
+        elif task == 'sort':
+            split = len(action_np) // 2
+            action_left = action_np[:split]
+            action_right = action_np[split:]
+            
+            active_joints_left = left_arm.get_active_joints()
+            for i, joint in enumerate(active_joints_left):
+                joint.set_drive_target(action_left[i])
+                
+            active_joints_right = right_arm.get_active_joints()
+            for i, joint in enumerate(active_joints_right):
+                joint.set_drive_target(action_right[i])
+        else:
+            active_joints = left_arm.get_active_joints()
+            for i, joint in enumerate(active_joints):
+                joint.set_drive_target(action_np[i])
         
         if viewer:
             viewer.render()

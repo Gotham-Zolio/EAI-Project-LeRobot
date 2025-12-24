@@ -57,7 +57,23 @@ EAI-Project-LeRobot/
 ## 🛠️ Usage
 
 
-#### 1. Installation
+### 0. Data Collection（统一入口）
+
+使用单一脚本 `scripts/collect_data.py` 采集 Lift/Sort/Stack 任务数据（基于状态机+IK，支持按阶段RL残差）：
+
+```bash
+python scripts/collect_data.py --task lift --num_episodes 100 --web_viewer True
+```
+
+可选参数：
+- `--save_dir data/raw`：保存目录
+- `--headless True`：无GUI采集更快
+- `--models_root models/phased_rl`：按阶段RL残差模型目录（如存在）
+- `--residual_scale 0.2`：残差权重
+
+说明：旧的采集脚本（`collect_phased_rl.py`、`collect_data_augmented.py`、`collect_data_rl.py`、`collect_teleop_data.py`、`collect_multi.py`）已弃用并清理。
+
+### 1. Installation
 
 We recommend using **conda** to manage your Python environment:
 
@@ -70,8 +86,7 @@ conda activate lerobot
 python -m pip install -r requirements.txt
 ```
 
-
-#### 2. Simulation Environment Setup
+### 2. Simulation Environment Setup
 
 Before preparing data, verify your simulation environment by running the demo script for a specific task:
 
@@ -84,8 +99,7 @@ Replace `<task>` with `lift`, `sort`, or `stack` as needed. The script will gene
 
 
 
-
-#### 3. Data Preparation
+### 3. Data Preparation
 
 Download the demonstration datasets from:
 
@@ -103,8 +117,7 @@ This will re-encode all `.mp4` files in `data/` to a compatible format. Only run
 
 
 
-
-#### 4. Training
+### 4. Training
 
 To train the Diffusion Policy for a specific task (e.g., lift, sort, stack):
 
@@ -118,8 +131,7 @@ After training, model weights and logs can be found in:
 - `logs/train/<task>/<date>/<time>/`
 
 
-
-#### 5. Visualization
+### 5. Visualization
 
 To visualize training loss curves for a specific task:
 
@@ -137,8 +149,7 @@ Replace `<task>` with `lift`, `sort`, or `stack` as needed.
 
 
 
-
-#### 6. Evaluation
+### 6. Evaluation
 
 To evaluate a trained checkpoint in the simulation for a specific task and enable the web viewer:
 

@@ -52,21 +52,28 @@ def load_arm(scene, urdf_path, root_x):
 
     # Set drive properties for position control
     for joint in arm.get_active_joints():
-        joint.set_drive_property(stiffness=200, damping=10)
+        joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
 
     quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
-    quat_sapien = np.array(
-        [quat[3], quat[0], quat[1], quat[2]],
-        dtype=np.float32
-    )
+    quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
 
     arm.set_root_pose(sapien.Pose([root_x, 0.0, 0.0], quat_sapien))
 
     base_link = arm.get_links()[0]
     aabb_min, aabb_max = base_link.get_global_aabb_fast()
-    root_y = -aabb_max[1]
+    base_width_y = aabb_max[1] - aabb_min[1]
 
+    root_y = -aabb_max[1] + base_width_y
     arm.set_root_pose(sapien.Pose([root_x, root_y, 0.0], quat_sapien))
+
+    active_joints = arm.get_active_joints()
+    n = len(active_joints)
+    ready_qpos = np.zeros(n, dtype=np.float32)
+    ready_qpos[:6] = np.array([0.0, -0.4, 0.2, 2.0, 0.0, 0.3], dtype=np.float32)
+    arm.set_qpos(ready_qpos)
+
+    for i, joint in enumerate(active_joints):
+        joint.set_drive_target(ready_qpos[i])
 
     return arm
 
@@ -121,6 +128,7 @@ def add_block(scene, center, color, label="A", rotation_z=0.0):
     actor_builder.add_box_visual(half_size=half, material=material)
 
     actor = actor_builder.build()
+    actor.name = f"block_{label}"
 
     tex_size = 256
     img = Image.new("RGBA", (tex_size, tex_size),
@@ -187,11 +195,39 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     left_arm = load_arm(scene, urdf_path, root_x=11.9 * CM)
     right_arm = load_arm(scene, urdf_path, root_x=48.1 * CM)
 
+    for arm in [left_arm, right_arm]:
+        qpos = arm.get_qpos()
+        for i, joint in enumerate(arm.get_active_joints()):
+            joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
+            joint.set_drive_target(qpos[i])
+    
+    for _ in range(100):
+        scene.step()
+        
+    for arm in [left_arm, right_arm]:
+        qpos = arm.get_qpos()
+        for i, joint in enumerate(arm.get_active_joints()):
+            joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
+            joint.set_drive_target(qpos[i])
+
     # ------ Wrist cameras ------
     left_wrist_cam = add_wrist_camera(left_arm, link_name="camera_link", fovy_deg=70.0, z_offset=0.07)
     right_wrist_cam = add_wrist_camera(right_arm, link_name="camera_link", fovy_deg=70.0, z_offset=0.07)
 
-    return scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam
+    # ------ World demo camera ------
+    world_cam_mount = Entity()
+    world_cam = RenderCameraComponent(width=FRONT_CAM_W, height=FRONT_CAM_H)
+    near, far = 0.01, 50.0
+    world_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
+    world_cam_mount.add_component(world_cam)
+
+    cam_x, cam_y, cam_z = -14.0 * CM, 60.0 * CM, 40.0 * CM  # 调低 z，调整 y
+    quat = R.from_euler('xyz', [0.0, np.pi / 6, -np.pi / 4]).as_quat()
+    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
+    world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
+    scene.add_entity(world_cam_mount)
+
+    return scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam, world_cam
 
 
 # ---------------- Scene configurations ----------------
@@ -204,12 +240,16 @@ def get_random_pose(x_range, y_range, z_height):
 
 def setup_scene_lift(scene):
     """Task Lift: one red block in the rightmost box"""
-    # x in 41.1~54.7cm, y in 18.3~31.7cm
-    pos, rot = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-    add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
+    # Optimized spawn range for better arm reachability
+    # X: 44~47cm (reduced from 50cm - high X values cause IK failures even with good Y)
+    # Y: 22~24.5cm (safe range verified by testing)
+    # Test data: X>48cm causes IK failures or growing offsets; X~44-47cm gives 12-15cm initial offset
+    pos, rot = get_random_pose([44.0 * CM, 47.0 * CM], [22.0 * CM, 24.5 * CM], 1.5 * CM)
+    actor = add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
+    return [actor]
 
 
-def setup_scene_sort(scene):
+def setup_scene_stack(scene):
     """Task Sort: red + green in rightmost box"""
     # x in 41.1~54.7cm, y in 18.3~31.7cm, dist >= 4.5cm
     while True:
@@ -219,11 +259,12 @@ def setup_scene_sort(scene):
         if dist >= 4.5 * CM:
             break
             
-    add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="R", rotation_z=rot1)
-    add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
+    a1 = add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot1)
+    a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
+    return [a1, a2]
 
 
-def setup_scene_stack(scene):
+def setup_scene_sort(scene):
     """Task Stack: red + green in the middle box"""
     # x in 23.7~36.3cm, y in 18.3~31.7cm, dist >= 4.5cm
     while True:
@@ -233,17 +274,18 @@ def setup_scene_stack(scene):
         if dist >= 4.5 * CM:
             break
 
-    add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="R", rotation_z=rot1)
-    add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="G", rotation_z=rot2)
+    a1 = add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot1)
+    a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
+    return [a1, a2]
 
 def setup_scene(scene, task_name):
     if task_name == "default":
-        pass
+        return []
     elif task_name == "lift":
-        setup_scene_lift(scene)
+        return setup_scene_lift(scene)
     elif task_name == "sort":
-        setup_scene_sort(scene)
+        return setup_scene_sort(scene)
     elif task_name == "stack":
-        setup_scene_stack(scene)
+        return setup_scene_stack(scene)
     else:
         raise ValueError(f"Unknown task: {task_name}")

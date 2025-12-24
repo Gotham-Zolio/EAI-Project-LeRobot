@@ -2,15 +2,15 @@
 numpy>=1.24,<2.1
 scipy>=1.10,<1.14
 pandas>=1.5,<2.3
-pyarrow>=15,<22
+# pyarrow>=15,<22  # 仅在 datasets 处理 parquet 时需要，如无需求可注释
 
 # --- Vision ---
 opencv-python>=4.8,<5.0
 pillow>=9.5,<11
 
 # --- Deep Learning ---
-torch
-torchvision>=0.17,<0.23
+torch==2.7.1
+torchvision==0.22.1
 
 # --- Robotics / Simulation ---
 sapien>=3.0,<3.1
@@ -19,6 +19,8 @@ mplib>=0.2,<0.3
 # --- Utilities ---
 tyro>=0.8,<0.10
 hydra-core>=1.3,<1.4
+gymnasium>=0.29,<1.0
+h5py>=3.10,<4.0
 
 # --- LeRobot & HF ecosystem ---
 lerobot==0.3.3
@@ -28,8 +30,12 @@ datasets>=2.14,<3.0
 av>=15,<16
 
 # --- Monitoring ---
-tensorboard>=2.20,<2.21
-absl-py>=0.4
-grpcio>=1.48.2
-markdown>=2.6.8
-tensorboard-data-server>=0.7.0,<0.8.0
+# 以下为监控/日志相关，如不用 tensorboard 可注释
+# tensorboard>=2.20,<2.21
+# absl-py>=0.4
+# grpcio>=1.48.2
+# markdown>=2.6.8
+# tensorboard-data-server>=0.7.0,<0.8.0
+
+# --- RL ---
+stable-baselines3>=2.3,<3.0

@@ -22,7 +22,7 @@ if __name__ == "__main__":
     if args.task not in valid_tasks:
         raise ValueError(f"task must be one of {valid_tasks}")
 
-    scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam = create_scene(headless=args.headless)
+    scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam, world_cam = create_scene(headless=args.headless)
 
     # populate blocks according to requested task
     setup_scene(scene, args.task)
@@ -51,4 +51,9 @@ if __name__ == "__main__":
         rw_img = (right_wrist_cam.get_picture("Color") * 255).astype("uint8")
         Image.fromarray(rw_img).save(os.path.join(f"logs/simulation/{args.task}", "right_wrist.png"))
 
-        print(f"Saved front and wrist camera images for task {args.task} in logs/simulation/{args.task}/")
+        # world camera
+        world_cam.take_picture()
+        demo_img = (world_cam.get_picture("Color") * 255).astype("uint8")
+        Image.fromarray(demo_img).save(os.path.join(f"logs/simulation/{args.task}", "demo.png"))
+
+        print(f"Saved front, wrist, and world camera images for task {args.task} in logs/simulation/{args.task}/")
