@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="gripper_only"><link name="gripper_link">
+    <inertial>
+      <origin xyz="0.000213627 0.000245138 -0.025187" rpy="0 0 0" />
+      <mass value="0.087" />
+      <inertia ixx="2.75087e-05" ixy="-3.35241e-07" ixz="-5.7352e-06" iyy="4.33657e-05" iyz="-5.17847e-08" izz="3.45059e-05" />
+    </inertial>
+    
+    <visual>
+      <origin xyz="0.0077 0.0001 -0.0234" rpy="-1.5708 -5.19179e-17 -1.66533e-16" />
+      <geometry>
+        <mesh filename="assets/sts3215_03a_v1.stl" />
+      </geometry>
+      <material name="sts3215" />
+    </visual>
+    <collision>
+      <origin xyz="0.0077 0.0001 -0.0234" rpy="-1.5708 -5.19179e-17 -1.66533e-16" />
+      <geometry>
+        <mesh filename="assets/sts3215_03a_v1.stl" />
+      </geometry>
+    </collision>
+    
+    <visual>
+      <origin xyz="8.32667e-17 -0.000218214 0.000949706" rpy="-3.14159 -5.55112e-17 0" />
+      <geometry>
+        <mesh filename="assets/Wrist_Cam_Mount_32x32_UVC_Module_SO101.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="3d_printed" />
+    </visual>
+    <collision>
+      <origin xyz="8.32667e-17 -0.000218214 0.000949706" rpy="-3.14159 -5.55112e-17 0" />
+      <geometry>
+        <mesh filename="assets/Wrist_Cam_Mount_32x32_UVC_Module_SO101.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="gripper_frame_link">
+    <origin xyz="0 0 0" rpy="0 -0 0" />
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="1e-9" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+
+  <link name="moving_jaw_so101_v1_link">
+    <inertial>
+      <origin xyz="-0.00157495 -0.0300244 0.0192755" rpy="0 0 0" />
+      <mass value="0.012" />
+      <inertia ixx="6.61427e-06" ixy="-3.19807e-07" ixz="-5.90717e-09" iyy="1.89032e-06" iyz="-1.09945e-07" izz="5.28738e-06" />
+    </inertial>
+    
+    <visual>
+      <origin xyz="-5.55112e-17 -5.55112e-17 0.0189" rpy="9.53145e-17 6.93889e-18 1.24077e-24" />
+      <geometry>
+        <mesh filename="assets/moving_jaw_so101_v1.stl" />
+      </geometry>
+      <material name="3d_printed" />
+    </visual>
+    <collision>
+      <origin xyz="-5.55112e-17 -5.55112e-17 0.0189" rpy="9.53145e-17 6.93889e-18 1.24077e-24" />
+      <geometry>
+        <mesh filename="assets/moving_jaw_so101_v1.stl" />
+      </geometry>
+    </collision>
+  </link>
+
+  
+  <joint name="gripper_frame_joint" type="fixed">
+    <origin xyz="-0.0079 -0.000218121 -0.0981274" rpy="0 3.14159 0" />
+    <parent link="gripper_link" />
+    <child link="gripper_frame_link" />
+    <axis xyz="0 0 0" />
+  </joint>
+
+  
+  <joint name="gripper" type="revolute">
+    <origin xyz="0.0202 0.0188 -0.0234" rpy="1.5708 -5.24284e-08 -1.41553e-15" />
+    <parent link="gripper_link" />
+    <child link="moving_jaw_so101_v1_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="-0.174533" upper="1.74533" />
+  </joint>
+
+  </robot>
