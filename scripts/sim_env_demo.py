@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import os
 import tyro
+import sys
 from PIL import Image
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from lerobot.envs.sapien_env import create_scene, setup_scene
 from lerobot.common.camera import apply_distortion, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY
