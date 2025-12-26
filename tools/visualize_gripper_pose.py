@@ -40,7 +40,7 @@ def main():
     )
     grasp_info["closing"] = target_closing  # enforce closing direction
 
-    # 使夹爪Z轴竖直向下，X轴指向世界X正方向，Y轴为X×Z
+    # 使夹爪Z轴（抓取方向）严格为世界-z方向，X轴为世界x正方向，Y轴自动正交
     z_axis = np.array([0, 0, -1.0])
     x_axis = np.array([1.0, 0, 0])
     y_axis = np.cross(z_axis, x_axis)
@@ -53,7 +53,7 @@ def main():
     extra_rot = R.from_euler('z', cube_z_angle)
     refined_rotmat = grasp_rotmat @ extra_rot.as_matrix()
     grasp_quat = R.from_matrix(refined_rotmat).as_quat()
-    # 位置：cube中心沿z轴上移finger_length+0.02，最低不低于0.09m
+    # 位置：cube中心沿z_axis（竖直向下）上移finger_length+0.02，最低不低于0.09m
     tcp_pos = grasp_info["center"] - z_axis * (FINGER_LENGTH + 0.02)
     tcp_pos[2] = max(tcp_pos[2], 0.09)
     grasp_pose = Pose(tcp_pos, grasp_quat)
