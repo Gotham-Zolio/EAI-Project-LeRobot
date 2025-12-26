@@ -152,9 +152,9 @@ class BaseMotionPlanningSolver:
             wrt_world=True,
         )
         if result["status"] != "Success":
-            print(result["status"])
-            self.render_wait()
-            return -1
+            print(f"[ERROR] Motion planning failed: {result['status']}")
+            print(f"Target pose: p={pose.p}, q={pose.q}")
+            raise RuntimeError(f"Motion planning failed: {result['status']}")
         self.render_wait()
         if dry_run:
             return result
@@ -174,9 +174,9 @@ class BaseMotionPlanningSolver:
             wrt_world=True,
         )
         if result["status"] != "Success":
-            print(result["status"])
-            self.render_wait()
-            return -1
+            print(f"[ERROR] Motion planning failed: {result['status']}")
+            print(f"Target pose: p={pose.p}, q={pose.q}")
+            raise RuntimeError(f"Motion planning failed: {result['status']}")
         self.render_wait()
         if dry_run:
             return result

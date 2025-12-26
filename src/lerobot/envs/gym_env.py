@@ -117,11 +117,11 @@ class LeRobotGymEnv(gym.Env):
         world_img = (self.world_cam.get_picture("Color") * 255).astype(np.uint8)
 
         # 调试输出各摄像头画面信息
-        for name, img in zip(["front", "left_wrist", "right_wrist", "world"], [front_img, left_wrist_img, right_wrist_img, world_img]):
-            try:
-                print(f"[DEBUG] {name}: shape={img.shape}, min={img.min()}, max={img.max()}, dtype={img.dtype}")
-            except Exception as e:
-                print(f"[DEBUG] {name}: error {e}")
+        # for name, img in zip(["front", "left_wrist", "right_wrist", "world"], [front_img, left_wrist_img, right_wrist_img, world_img]):
+        #     try:
+        #         print(f"[DEBUG] {name}: shape={img.shape}, min={img.min()}, max={img.max()}, dtype={img.dtype}")  # 屏蔽冗余DEBUG输出，防止刷屏
+        #     except Exception as e:
+        #         print(f"[DEBUG] {name}: error {e}")
 
         # Proprioception
         left_qpos = self.left_arm.get_qpos()
