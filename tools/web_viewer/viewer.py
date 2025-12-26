@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 import cv2
@@ -69,7 +70,8 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 class WebViewer:
     def __init__(self, port=5000, output_dir="outputs/web_viewer"):
         self.port = port
-        self.output_dir = Path(output_dir)
+        home_tmp = os.path.expanduser("~/tmp")
+        self.output_dir = Path(home_tmp) / "outputs/web_viewer"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         self.frames = {}
