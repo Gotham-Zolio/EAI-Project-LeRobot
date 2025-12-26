@@ -3,6 +3,9 @@ import os
 import tyro
 from PIL import Image
 import numpy as np
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from lerobot.envs.sapien_env import create_scene, setup_scene
 from lerobot.common.camera import apply_distortion, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY
@@ -18,7 +21,7 @@ if __name__ == "__main__":
 
     args = tyro.cli(Args)
 
-    valid_tasks = ["default", "lift", "sort", "stack"]
+    valid_tasks = ["default", "lift", "sort", "stack", "operation"]
     if args.task not in valid_tasks:
         raise ValueError(f"task must be one of {valid_tasks}")
 
