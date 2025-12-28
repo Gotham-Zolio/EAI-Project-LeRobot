@@ -1,165 +1,127 @@
+
 # EAI Course Project: Diffusion Policy for LeRobot SO-101
 
-This repository contains the implementation of **Diffusion Policy** for the Embodied AI 2025 Course Project (Track 1). The goal is to control a simulated LeRobot SO-101 manipulator to perform Lift, Stack, and Sort tasks.
+This repository implements a Diffusion Policy for the LeRobot SO-101 manipulator, supporting Lift, Stack, and Sort tasks in simulation and training for the Embodied AI 2025 course project (Track 1).
 
-## 📂 Repository Structure
+## 📁 Repository Structure
 
 ```
 EAI-Project-LeRobot/
-├── assets/               # Robot assets (URDF, meshes)
-├── configs/              # Configuration files
-│   ├── env/              # Environment configs
-│   ├── policy/           # Policy configs (Diffusion)
-│   ├── robots/           # Robot calibration/config files
-│   └── train.yaml        # Main training configuration
-├── data/                 # Datasets (Lift, Sort, Stack)
-├── docs/                 # Documentation, reports, and images
-│   ├── images/           # Reference images and results
-│   └── midterm_report/   # Midterm report LaTeX source
-├── logs/                 # Runtime logs and scene captures
-│   ├── simulation/       # Simulation outputs (images, videos)
-│   └── train/            # Training logs and checkpoints
-├── scripts/              # Main executable scripts
-│   ├── train.py          # Training script
-│   ├── eval.py           # Evaluation script (Sim)
-│   ├── visualize_training.py # Training visualization tool
-│   ├── collect_data.py   # Data collection script
-│   └── examples/         # Example scripts (e.g., dummy_eval.py)
-├── src/                  # Source code package
-│   └── lerobot/          # LeRobot library implementation
-├── tools/                # Utility tools (calibration, video conversion)
-├── requirements.txt      # Python dependencies
-└── README.md             # Project documentation
+├── assets/                # Robot models, URDF, SRDF, parts
+│   └── SO101/             # SO-101 specific resources
+├── configs/               # Configuration files
+│   ├── env/               # Environment configs
+│   ├── policy/            # Diffusion Policy configs
+│   ├── robots/            # Robot calibration/configs
+│   └── train.yaml         # Main training config
+├── data/                  # Collected datasets
+├── docs/                  # Documentation, reports, images
+│   ├── images/            # Result images
+│   └── midterm_report/    # Midterm report (LaTeX)
+├── grasp-cube-sample/     # Related samples and external dependencies
+├── logs/                  # Logs and simulation outputs
+│   ├── debug/             # Debug logs
+│   └── simulation/        # Simulation images/videos
+├── scripts/               # Main executable scripts
+│   ├── train.py               # Training entry
+│   ├── eval.py                # Evaluation entry
+│   ├── collect_data.py        # Data collection (motion planning)
+│   ├── sim_env_demo.py        # Simulation environment test
+│   ├── reward_functions.py    # Reward functions
+│   ├── visualize_training.py  # Training visualization
+│   └── examples/              # Example scripts
+├── src/                     # Source code
+│   └── lerobot/             # Main implementation
+├── tools/                   # Utility scripts
+│   ├── calibration/         # Camera calibration
+│   ├── web_viewer/          # Web visualization
+│   └── visualize_gripper_pose.py # Gripper pose visualization
+├── requirements.txt         # Python dependencies
+├── pyproject.toml           # Python project config
+└── README.md                # Project documentation
 ```
 
-## 🚀 Project Roadmap
+## 🚀 Getting Started
 
-### Phase 1: Simulation & Environment Setup
-- [x] Set up SAPIEN/Gym environment with SO-101 robot.
-- [x] Configure camera sensors (Front, Left Wrist, Right Wrist).
-- [x] Implement task environments: Lift, Stack, Sort.
+### 1. Installation
 
-### Phase 2: Data Collection
-- [x] Collect expert demonstrations for all tasks.
-- [x] Preprocess data (normalization, chunking) for Diffusion Policy training.
+It is recommended to use **conda** for Python environment management:
 
-### Phase 3: Policy Training
-- [x] Implement DDPM-based Diffusion Policy.
-- [x] Implement Training Loop with Hydra & TensorBoard.
-- [ ] Train policies on collected datasets (In Progress).
-- [ ] Tune hyperparameters (noise schedule, horizon, etc.).
+```bash
+conda create -n lerobot python=3.10
+conda activate lerobot
+python -m pip install -r requirements.txt
+```
 
-### Phase 4: Evaluation & Sim-to-Real
-- [x] Implement Evaluation Script (`eval.py`).
-- [ ] Transfer trained policies to the real SO-101 robot.
-- [ ] Address Sim-to-Real gaps.
+### 2. Simulation Environment Test
 
-## 🛠️ Usage
+Run the simulation environment and generate test images:
 
+```bash
+python scripts/sim_env_demo.py --task lift
+```
+Available tasks: `lift`, `sort`, `stack`. Output images are saved in `logs/simulation/<task>/`.
 
-### 0. Data Collection（统一入口）
+### 3. Data Collection (Motion Planning)
 
-使用单一脚本 `scripts/collect_data.py` 采集 Lift/Sort/Stack 任务数据（基于状态机+IK，支持按阶段RL残差）：
+Collect demonstration data for a specific task using motion planning:
 
 ```bash
 python scripts/collect_data.py --task lift --num_episodes 100 --web_viewer True
 ```
+Key arguments:
+- `--task`: Task type (`lift`, `sort`, `stack`)
+- `--num_episodes`: Number of episodes to collect
+- `--save_dir`: Output directory (default: `data/raw`)
+- `--headless`: Run without GUI for faster collection
+- `--web_viewer`: Enable web visualization
 
-可选参数：
-- `--save_dir data/raw`：保存目录
-- `--headless True`：无GUI采集更快
-- `--models_root models/phased_rl`：按阶段RL残差模型目录（如存在）
-- `--residual_scale 0.2`：残差权重
+All data is collected online; there is no need to download datasets or perform video conversion.
 
-说明：旧的采集脚本（`collect_phased_rl.py`、`collect_data_augmented.py`、`collect_data_rl.py`、`collect_teleop_data.py`、`collect_multi.py`）已弃用并清理。
+### 4. Gripper Pose Visualization for Debugging
 
-### 1. Installation
-
-We recommend using **conda** to manage your Python environment:
-
-```bash
-# Create conda environment
-conda create -n lerobot python=3.10
-conda activate lerobot
-
-# Install dependencies
-python -m pip install -r requirements.txt
-```
-
-### 2. Simulation Environment Setup
-
-Before preparing data, verify your simulation environment by running the demo script for a specific task:
+To visualize the target gripper pose for debugging motion planning:
 
 ```bash
-python scripts/sim_env_demo.py --task <task>
+python tools/visualize_gripper_pose.py --task lift
 ```
+This helps verify the correctness of the planned gripper trajectory and target pose.
 
-Replace `<task>` with `lift`, `sort`, or `stack` as needed. The script will generate images in the corresponding folder:
-- `logs/simulation/<task>/`
-
-
-
-### 3. Data Preparation
-
-Download the demonstration datasets from:
-
-https://cloud.tsinghua.edu.cn/d/2687cde6d00b46b7a6db/
-
-Extract all contents into the `data/` directory.
-
-**Video Conversion:**
-If you encounter video playback issues (e.g., in browsers or some video tools), or need to ensure all videos are in a standard format (H.264, yuv420p), run the following (requires `ffmpeg`):
+### 5. Training Diffusion Policy
 
 ```bash
-bash tools/convert_videos.sh
+python scripts/train.py task=lift
 ```
-This will re-encode all `.mp4` files in `data/` to a compatible format. Only run this if you experience compatibility problems or need to process videos for web visualization.
+Available tasks: `lift`, `sort`, `stack`. You can modify configs in `configs/train.yaml` or override via command line. Training logs and models are saved in `logs/train/<task>/`.
 
-
-
-### 4. Training
-
-To train the Diffusion Policy for a specific task (e.g., lift, sort, stack):
+### 6. Training Visualization
 
 ```bash
-python scripts/train.py task=<task>
+python scripts/visualize_training.py --task lift
+```
+Or use TensorBoard:
+```bash
+tensorboard --logdir logs/train/lift
 ```
 
-Replace `<task>` with `lift`, `sort`, or `stack` as needed. You can modify configurations in `configs/train.yaml` or override them via command line.
-
-After training, model weights and logs can be found in:
-- `logs/train/<task>/<date>/<time>/`
-
-
-### 5. Visualization
-
-To visualize training loss curves for a specific task:
+### 7. Evaluation and Web Visualization
 
 ```bash
-python scripts/visualize_training.py --task <task>
+python scripts/eval.py --checkpoint logs/train/lift/<date>/<time>/checkpoint_XXX.pth --task lift --web-viewer
 ```
+Open [http://localhost:5000](http://localhost:5000) in your browser to view real-time camera streams.
 
-To monitor with TensorBoard for a specific task:
+## 🧩 Main Dependencies
 
-```bash
-tensorboard --logdir logs/train/<task>
-```
+- Python 3.10
+- SAPIEN 3.x
+- torch 2.7.x
+- gymnasium, hydra-core, tyro, opencv-python, diffusers, datasets, h5py, etc.
 
-Replace `<task>` with `lift`, `sort`, or `stack` as needed.
-
-
-
-### 6. Evaluation
-
-To evaluate a trained checkpoint in the simulation for a specific task and enable the web viewer:
-
-```bash
-python scripts/eval.py --checkpoint logs/train/<task>/<date>/<time>/checkpoint_XXX.pth --task <task> --web-viewer
-```
-
-Replace `<task>` with `lift`, `sort`, or `stack` as needed. When `--web-viewer` is enabled, open [http://localhost:5000](http://localhost:5000) in your browser to view live camera streams and record videos/screenshots during evaluation.
+See `requirements.txt` and `pyproject.toml` for details.
 
 ## 👥 Team
+
 - Guanheng Chen
 - Zuo Gou
 - Zhengyang Fan
