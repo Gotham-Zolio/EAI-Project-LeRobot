@@ -67,14 +67,15 @@ Available tasks: `lift`, `sort`, `stack`. Output images are saved in `logs/simul
 Collect demonstration data for a specific task using motion planning:
 
 ```bash
-python scripts/collect_data.py --task lift --num_episodes 100 --web_viewer True
+python scripts/collect_data.py --config.task lift --config.num-episodes 100 --config.web-viewer --config.vis
 ```
 Key arguments:
-- `--task`: Task type (`lift`, `sort`, `stack`)
-- `--num_episodes`: Number of episodes to collect
-- `--save_dir`: Output directory (default: `data/raw`)
-- `--headless`: Run without GUI for faster collection
-- `--web_viewer`: Enable web visualization
+- `--config.task`: Task type (`lift`, `sort`, `stack`)
+- `--config.num-episodes`: Number of episodes to collect
+- `--config.save-dir`: Output directory (default: `data/raw`)
+- `--config.headless`: Run without GUI for faster collection
+- `--config.web-viewer`: Enable web visualization
+- `--config.vis`: Enable simulation visualization (show axes and debug info)
 
 All data is collected online; there is no need to download datasets or perform video conversion.
 
