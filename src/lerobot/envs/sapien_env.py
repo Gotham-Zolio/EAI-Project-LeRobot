@@ -235,7 +235,7 @@ def get_random_pose(x_range, y_range, z_height):
     x = np.random.uniform(*x_range)
     y = np.random.uniform(*y_range)
     z = z_height
-    rot_z = np.random.uniform(0, 2 * np.pi)
+    rot_z = np.random.uniform(0, np.pi / 2)
     return [x, y, z], rot_z
 
 def setup_scene_lift(scene):
