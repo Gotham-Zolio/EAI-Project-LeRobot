@@ -90,48 +90,38 @@ class BaseMotionPlanningSolver:
     def _transform_pose_for_planning(self, target: sapien.Pose) -> sapien.Pose:
         return target
 
-    def follow_path(self, result, refine_steps: int = 0):
+    def follow_path(self, result, refine_steps: int = 0, keep_gripper_open: bool = False):
         n_step = result["position"].shape[0]
         for i in range(n_step + refine_steps):
             qpos = result["position"][min(i, n_step - 1)]
-            
-            # LeRobotGymEnv step expects action for BOTH arms if it's the main env step.
-            # But here we are controlling one robot.
-            # We need to know if we are left or right arm, OR we need to construct the full action.
-            # Since we passed `env` and `robot`, we can try to infer or just set the robot's drive target directly
-            # and call scene.step(), bypassing env.step() if we want pure motion planning execution.
-            # However, env.step() handles recording, rewards, etc.
-            
-            # For data collection, we probably want to use env.step().
-            # But env.step() takes a combined action vector.
-            
-            # Strategy: Read current qpos of the OTHER arm, and combine.
-            # This requires knowing which arm we are.
-            
-            # Let's assume we can set the robot's drive targets directly for now to ensure movement,
-            # and then call env.step() with the current qpos of both arms as the "action".
-            
-            # Actually, better: Construct the full action vector.
-            # self.env.left_arm and self.env.right_arm
-            
+
             left_qpos = self.env.left_arm.get_qpos()
             right_qpos = self.env.right_arm.get_qpos()
-            
-            if self.robot == self.env.left_arm:
-                left_qpos = qpos
-            elif self.robot == self.env.right_arm:
-                right_qpos = qpos
-            
+
+            # If requested, force gripper joint to open value during the trajectory
+            if keep_gripper_open:
+                if self.robot == self.env.left_arm:
+                    qpos = np.copy(qpos)
+                    qpos[-1] = getattr(self, "OPEN", 0.6)
+                    left_qpos = qpos
+                elif self.robot == self.env.right_arm:
+                    qpos = np.copy(qpos)
+                    qpos[-1] = getattr(self, "OPEN", 0.6)
+                    right_qpos = qpos
+            else:
+                if self.robot == self.env.left_arm:
+                    left_qpos = qpos
+                elif self.robot == self.env.right_arm:
+                    right_qpos = qpos
+
             action = np.concatenate([left_qpos, right_qpos])
-            
+
             obs, reward, terminated, truncated, info = self.env.step(action)
             self.elapsed_steps += 1
             if self.print_env_info:
                 print(
                     f"[{self.elapsed_steps:3}] Env Output: reward={reward} info={info}"
                 )
-            # if self.vis:
-            #     self.base_env.render_human()
         return obs, reward, terminated, truncated, info
 
         
@@ -161,7 +151,7 @@ class BaseMotionPlanningSolver:
         return self.follow_path(result, refine_steps=refine_steps)
 
     def move_to_pose_with_RRTConnect(
-        self, pose: sapien.Pose, dry_run: bool = False, refine_steps: int = 0
+        self, pose: sapien.Pose, dry_run: bool = False, refine_steps: int = 0, keep_gripper_open: bool = False
     ):
         pose = to_sapien_pose(pose)
         self._update_grasp_visual(pose)
@@ -180,7 +170,7 @@ class BaseMotionPlanningSolver:
         self.render_wait()
         if dry_run:
             return result
-        return self.follow_path(result, refine_steps=refine_steps)
+        return self.follow_path(result, refine_steps=refine_steps, keep_gripper_open=keep_gripper_open)
 
     def move_to_pose_with_screw(
         self, pose: sapien.Pose, dry_run: bool = False, refine_steps: int = 0

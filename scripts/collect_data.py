@@ -47,7 +47,7 @@ class CollectionConfig:
     verbose: bool = False  # 详细输出
     web_viewer: bool = False  # 是否启用web可视化
     port: int = 5000  # web viewer端口
-    sleep_viewer_sec: float = 0.05  # viewer刷新间隔 (加快一点)
+    sleep_viewer_sec: float = 0.1  # viewer刷新间隔 (建议0.1及以上，减轻web卡顿)
 
 
 class RecordingWrapper:

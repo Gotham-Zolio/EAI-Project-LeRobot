@@ -50,17 +50,16 @@ class StreamingHandler(BaseHTTPRequestHandler):
                 frame = self.server.viewer.get_frame(cam_name)
                 if frame is None:
                     frame = self.server.viewer.get_placeholder(cam_name)
-                
                 ret, jpeg = cv2.imencode('.jpg', frame)
-                if not ret: continue
-                
+                if not ret:
+                    continue
                 self.wfile.write(b'--frame\r\n')
                 self.send_header('Content-Type', 'image/jpeg')
                 self.send_header('Content-Length', str(len(jpeg)))
                 self.end_headers()
                 self.wfile.write(jpeg.tobytes())
                 self.wfile.write(b'\r\n')
-                time.sleep(0.03)
+                time.sleep(0.1)  # 降低帧率到10FPS，减轻卡顿
         except Exception:
             pass
 

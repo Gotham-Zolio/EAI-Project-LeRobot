@@ -67,15 +67,12 @@ def build_grasp_pose(approaching, closing, center, finger_length):
 
 
 def solve_lift(env, seed=None, debug=False, vis=False):
-    # 调试：输出夹爪当前张开程度（宽度）
-    # robot变量需在定义后再使用
     """Plan and execute a lift task for the right arm in the given environment."""
     robot = env.right_arm
-    # 保留关键夹爪宽度调试输出，去除一次性排查信息
     urdf_path = "assets/SO101/so101.urdf"
     tcp_link_name = "gripper_link"
 
-    print("\n==================== LIFT DEBUG ====================")
+    print("\n==================== LIFT ====================")
 
     # --- Robot base ---
     base_pose = robot.get_root_pose()
@@ -88,14 +85,13 @@ def solve_lift(env, seed=None, debug=False, vis=False):
         visualize_target_grasp_pose=vis,
         print_env_info=False,
     )
-    # 在运动前确保夹爪充分张开
-    planner.open_gripper(t=40)  # 初始张开
-    print(f"[DEBUG] Gripper width (after open_gripper): {get_gripper_width_debug(robot)}")
+
+    planner.open_gripper(t=80)
 
     # --- Cube ---
     cube = env.task_actors[0]
     cube_pose = cube.pose
-    print_pose("cube", cube_pose)
+    print_pose("cube pose:", cube_pose)
 
     obb = get_actor_obb(cube)
     print("cube OBB:", obb)
@@ -105,19 +101,14 @@ def solve_lift(env, seed=None, debug=False, vis=False):
     tcp_pose = tcp_link.pose
     tcp_T = tcp_pose.to_transformation_matrix()
 
-
     # Use current TCP Y-axis as approach direction (gripper open/close direction)
     approaching = tcp_T[:3, 1].copy()  # Y axis is the true gripper approach
     # For closing, use current TCP Z-axis (orthogonal to Y)
     target_closing = tcp_T[:3, 2].copy()
 
-    print(f"[DEBUG] approaching (TCP Y): {approaching}")
-    print(f"[DEBUG] target_closing (TCP Z): {target_closing}")
-
     FINGER_LENGTH = 0.025
 
     # Compute grasp info using OBB and approach/closing directions
-
     grasp_info = compute_grasp_info_by_obb(
         obb,
         approaching=approaching,
@@ -134,69 +125,67 @@ def solve_lift(env, seed=None, debug=False, vis=False):
     rot = np.stack([x_axis, y_axis, z_axis], axis=1)
     from scipy.spatial.transform import Rotation as R
     grasp_quat = R.from_matrix(rot).as_quat()
-    # 直接使用grasp_pose_raw作为目标抓取位姿
     grasp_pose_raw = sapien.Pose(grasp_info["center"], grasp_quat)
-    tcp_center = tcp_pose.p
-    grasp_center = grasp_pose_raw.p
-    offset_vec = grasp_center - tcp_center
-    print(f"[DEBUG] Grasp center (grasp_pose_raw.p): {grasp_center}")
-    print(f"[DEBUG] TCP center (tcp_pose.p): {tcp_center}")
-    print(f"[DEBUG] Offset vector (grasp_center - tcp_center): {offset_vec}")
-    # --- Reach pose: move above grasp pose (align x, y, only offset z) ---
+
+    # --- 获取cube与x轴夹角（yaw）并打印 ---
+    from scipy.spatial.transform import Rotation as R
+    q = cube_pose.q
+    # sapien通常为[w, x, y, z]，scipy为[x, y, z, w]
+    if len(q) == 4:
+        q_xyzw = np.array([q[1], q[2], q[3], q[0]])
+    else:
+        q_xyzw = np.array(q)
+    r = R.from_quat(q_xyzw)
+    yaw_deg = r.as_euler('zyx', degrees=True)[0]
+    yaw_rad = r.as_euler('zyx', degrees=False)[0]
+    print(f"[INFO] cube与x轴夹角: {yaw_deg:.2f}° ({yaw_rad:.3f} rad)")
+
+    # --- Reach pose: move above grasp pose, 并绕z轴再转cube yaw角 ---
     reach_p = grasp_pose_raw.p.copy()
     reach_p[2] += 0.12  # Only move up in z direction
     reach_p[2] = max(reach_p[2], 0.09)
-    # 自定义x, y方向偏移
-    dx = -0.02367756  # 修改为你想要的x方向偏移（单位：米）
-    dy = -0.01914121  # 修改为你想要的y方向偏移（单位：米）
+    dx = +0.000
+    dy = -0.03
     reach_p[0] += dx
     reach_p[1] += dy
-    print(f"[DEBUG] reach_p after z and xy offset: {reach_p}")
+    print(f"[DEBUG] reach_p after offset: {reach_p}")
+    # 先用原四元数，再绕z轴旋转yaw_rad
+    # orig_rot = R.from_quat(grasp_pose_raw.q)
+    # rot_z = R.from_euler('x', yaw_rad)
+    # new_rot = rot_z * orig_rot
+    # reach_quat = new_rot.as_quat()
+    # reach_pose = sapien.Pose(reach_p, reach_quat)
     reach_pose = sapien.Pose(reach_p, grasp_pose_raw.q)
     print_pose("reach_pose", reach_pose)
 
-    # 保证 grasp_pose 的 x, y 与 reach_pose 完全一致
+    # --- Grasp pose: adjust to be slightly lower than reach ---
     grasp_pose_p = grasp_pose_raw.p.copy()
     grasp_pose_p[0] = reach_pose.p[0]
     grasp_pose_p[1] = reach_pose.p[1]
+    grasp_pose_p[2] = reach_pose.p[2] - 0.09
     grasp_pose = sapien.Pose(grasp_pose_p, grasp_pose_raw.q)
-    print(f"[DEBUG] grasp_pose.p (x, y aligned to reach_pose): {grasp_pose.p}")
+    print(f"[DEBUG] grasp_pose.p: {grasp_pose.p}")
+
+    # --- Lift pose: move up after grasping ---
+    lift_pose_p = grasp_pose.p.copy()
+    lift_pose_p[2] += 0.04
+    lift_pose = sapien.Pose(lift_pose_p, grasp_pose.q)
 
     # Debug: check alignment between TCP Z-axis and grasp_pose Z-axis
     grasp_rot = R.from_quat(grasp_pose.q).as_matrix()
     cos_angle = np.dot(approaching, grasp_rot[:, 2]) / (np.linalg.norm(approaching) * np.linalg.norm(grasp_rot[:, 2]))
     angle_deg = np.arccos(np.clip(cos_angle, -1, 1)) * 180 / np.pi
-    print(f"[Alignment] tcp_link Z vs grasp_pose Z angle: {angle_deg:.2f}°")
     print(f"[Y check] cube Y = {cube_pose.p[1]:+.3f}, grasp Y = {grasp_pose.p[1]:+.3f}")
 
-    # --- Reach pose: move above grasp pose (align x, y, only offset z) ---
-    reach_p = grasp_pose.p.copy()
-    reach_p[2] += 0.12  # Only move up in z direction
-    reach_p[2] = max(reach_p[2], 0.09)
-    # 自定义x, y方向偏移
-    dx = -0.02367756  # 修改为你想要的x方向偏移（单位：米）
-    dy = -0.01914121  # 修改为你想要的y方向偏移（单位：米）
-    reach_p[0] += dx
-    reach_p[1] += dy
-    print(f"[DEBUG] reach_p after z and xy offset: {reach_p}")
-    reach_pose = sapien.Pose(reach_p, grasp_pose.q)
-    print_pose("reach_pose", reach_pose)
-
     # --- Motion execution ---
-    planner.open_gripper(t=40)  # 到达reach_pose前再次确保张开
+    planner.open_gripper(t=80)
     print(f"[DEBUG] Gripper width (before reach_pose): {get_gripper_width_debug(robot)}")
-    planner.open_gripper(t=40)  # 强制张开夹爪
-    planner.move_to_pose_with_RRTConnect(reach_pose)
-    planner.open_gripper(t=40)  # 强制张开夹爪
+    planner.move_to_pose_with_RRTConnect(reach_pose, keep_gripper_open=True)
     print(f"[DEBUG] Gripper width (after reach_pose): {get_gripper_width_debug(robot)}")
-    planner.open_gripper(t=40)  # 强制张开夹爪
-    planner.move_to_pose_with_RRTConnect(grasp_pose)
-    planner.open_gripper(t=40)  # 强制张开夹爪
+    planner.move_to_pose_with_RRTConnect(grasp_pose, keep_gripper_open=True)
     print(f"[DEBUG] Gripper width (after grasp_pose): {get_gripper_width_debug(robot)}")
-    planner.close_gripper(t=20)
+    planner.close_gripper(t=80)
     print(f"[DEBUG] Gripper width (after close_gripper): {get_gripper_width_debug(robot)}")
-
-    lift_pose = sapien.Pose([0, 0, 0.12]) * grasp_pose
     planner.move_to_pose_with_RRTConnect(lift_pose)
     planner.close()
 
