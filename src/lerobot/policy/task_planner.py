@@ -86,6 +86,33 @@ def solve_lift(env, seed=None, debug=False, vis=False):
         print_env_info=False,
     )
 
+
+    # ========== 可视化辅助函数 ========== 
+    def add_axis_to_scene(scene, pose, length=0.08, thickness=0.003, arrow_size=0.012):
+        def add_box(offset, size, color):
+            builder = scene.create_actor_builder()
+            half = [s / 2 for s in size]
+            import sapien.render
+            material = sapien.render.RenderMaterial()
+            material.base_color = np.array(color)
+            material.specular = 0.1
+            builder.add_box_visual(half_size=half, material=material)
+            actor = builder.build_static()
+            # 以父pose为基础，沿主轴方向平移offset，姿态与父pose一致
+            T = pose.to_transformation_matrix()
+            new_pos = pose.p + T[:3, :3] @ offset
+            actor.set_pose(sapien.Pose(new_pos, pose.q))
+            return actor
+        # X轴-红
+        add_box([length/2, 0, 0], [length, thickness, thickness], [1,0,0,1])
+        add_box([length, 0, 0], [arrow_size]*3, [1,0,0,1])
+        # Y轴-绿
+        add_box([0, length/2, 0], [thickness, length, thickness], [0,1,0,1])
+        add_box([0, length, 0], [arrow_size]*3, [0,1,0,1])
+        # Z轴-蓝
+        add_box([0, 0, length/2], [thickness, thickness, length], [0,0,1,1])
+        add_box([0, 0, length], [arrow_size]*3, [0,0,1,1])
+
     planner.open_gripper(t=80)
 
     # --- Cube ---
@@ -140,30 +167,44 @@ def solve_lift(env, seed=None, debug=False, vis=False):
     yaw_rad = r.as_euler('zyx', degrees=False)[0]
     print(f"[INFO] cube与x轴夹角: {yaw_deg:.2f}° ({yaw_rad:.3f} rad)")
 
-    # --- Reach pose: move above grasp pose, 并绕z轴再转cube yaw角 ---
+
+    # --- Reach pose: move above grasp pose, 并绕自身y轴旋转cube yaw角 ---
     reach_p = grasp_pose_raw.p.copy()
     reach_p[2] += 0.12  # Only move up in z direction
     reach_p[2] = max(reach_p[2], 0.09)
-    dx = +0.000
-    dy = -0.03
+    dx = +0.005
+    dy = -0.022
     reach_p[0] += dx
     reach_p[1] += dy
     print(f"[DEBUG] reach_p after offset: {reach_p}")
-    # 先用原四元数，再绕z轴旋转yaw_rad
-    # orig_rot = R.from_quat(grasp_pose_raw.q)
-    # rot_z = R.from_euler('x', yaw_rad)
-    # new_rot = rot_z * orig_rot
-    # reach_quat = new_rot.as_quat()
-    # reach_pose = sapien.Pose(reach_p, reach_quat)
-    reach_pose = sapien.Pose(reach_p, grasp_pose_raw.q)
+    # 以grasp_pose_raw为基础，绕自身y轴旋转cube的yaw
+    from scipy.spatial.transform import Rotation as R
+    def wxyz_to_xyzw(q):
+        return [q[1], q[2], q[3], q[0]]
+    grasp_rot = R.from_quat(wxyz_to_xyzw(grasp_pose_raw.q))
+    # 绕自身y轴旋转cube的yaw
+    rot_y = R.from_euler('y', yaw_rad - np.pi / 2, degrees=False) 
+    new_rot = grasp_rot * rot_y
+    new_quat = new_rot.as_quat()  # xyzw
+    new_quat_wxyz = [new_quat[3], new_quat[0], new_quat[1], new_quat[2]]
+    reach_pose = sapien.Pose(reach_p, new_quat_wxyz)
     print_pose("reach_pose", reach_pose)
 
-    # --- Grasp pose: adjust to be slightly lower than reach ---
+    # 计算reach_pose下夹爪自身x轴与世界x轴的夹角
+    reach_rot = R.from_quat(reach_pose.q).as_matrix()
+    gripper_x = reach_rot[:, 1]  # 夹爪自身x轴（TCP坐标系x轴）
+    world_x = np.array([1, 0, 0])
+    cos_theta = np.dot(gripper_x, world_x) / (np.linalg.norm(gripper_x) * np.linalg.norm(world_x))
+    cos_theta = np.clip(cos_theta, -1, 1)
+    angle_deg = np.arccos(cos_theta) * 180 / np.pi
+    print(f"[INFO] reach_pose下夹爪x轴与世界x轴夹角: {angle_deg:.2f}°")
+
+    # --- Grasp pose: adjust to be slightly lower than reach, 并保持与reach_pose相同的q ---
     grasp_pose_p = grasp_pose_raw.p.copy()
     grasp_pose_p[0] = reach_pose.p[0]
     grasp_pose_p[1] = reach_pose.p[1]
     grasp_pose_p[2] = reach_pose.p[2] - 0.09
-    grasp_pose = sapien.Pose(grasp_pose_p, grasp_pose_raw.q)
+    grasp_pose = sapien.Pose(grasp_pose_p, reach_pose.q)
     print(f"[DEBUG] grasp_pose.p: {grasp_pose.p}")
 
     # --- Lift pose: move up after grasping ---
@@ -177,6 +218,20 @@ def solve_lift(env, seed=None, debug=False, vis=False):
     angle_deg = np.arccos(np.clip(cos_angle, -1, 1)) * 180 / np.pi
     print(f"[Y check] cube Y = {cube_pose.p[1]:+.3f}, grasp Y = {grasp_pose.p[1]:+.3f}")
 
+
+    # ========== 可视化cube和gripper坐标轴 ========== 
+    # 仅在vis=True时可视化
+    # 并输出两原点间向量
+    if vis and hasattr(env, 'scene'):
+        scene = env.scene
+        # cube坐标轴
+        add_axis_to_scene(scene, cube_pose, length=0.08)
+        # gripper坐标轴（reach_pose位置）
+        add_axis_to_scene(scene, reach_pose, length=0.08)
+        # 输出cube到reach_pose的向量
+        vec_cube_to_reach = reach_pose.p - cube_pose.p
+        print(f"[DEBUG] cube->reach_pose 向量: {vec_cube_to_reach} (norm={np.linalg.norm(vec_cube_to_reach):.4f})")
+
     # --- Motion execution ---
     planner.open_gripper(t=80)
     print(f"[DEBUG] Gripper width (before reach_pose): {get_gripper_width_debug(robot)}")
@@ -184,7 +239,7 @@ def solve_lift(env, seed=None, debug=False, vis=False):
     print(f"[DEBUG] Gripper width (after reach_pose): {get_gripper_width_debug(robot)}")
     planner.move_to_pose_with_RRTConnect(grasp_pose, keep_gripper_open=True)
     print(f"[DEBUG] Gripper width (after grasp_pose): {get_gripper_width_debug(robot)}")
-    planner.close_gripper(t=80)
+    planner.close_gripper(t=80, gap=0.9)
     print(f"[DEBUG] Gripper width (after close_gripper): {get_gripper_width_debug(robot)}")
     planner.move_to_pose_with_RRTConnect(lift_pose)
     planner.close()

@@ -48,6 +48,7 @@ class CollectionConfig:
     web_viewer: bool = False  # 是否启用web可视化
     port: int = 5000  # web viewer端口
     sleep_viewer_sec: float = 0.1  # viewer刷新间隔 (建议0.1及以上，减轻web卡顿)
+    vis: bool = False  # 是否在仿真环境中可视化坐标轴
 
 
 class RecordingWrapper:
@@ -183,7 +184,7 @@ class FSMDataCollector:
             
         # 运行求解器
         try:
-            self.solver(wrapper, seed=episode_id, debug=self.config.verbose, vis=False) # vis=False because we use WebViewer/Wrapper
+            self.solver(wrapper, seed=episode_id, debug=self.config.verbose, vis=self.config.vis)
             success = True # 如果求解器没有抛出异常，假设成功？或者检查最后的状态？
             # 简单的成功判定：是否有reward > 0 (假设环境有定义reward)
             # 或者检查任务完成条件。

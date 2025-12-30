@@ -62,34 +62,28 @@ class SO101ArmMotionPlanningSolver(TwoFingerGripperMotionPlanningSolver):
         # But original code had it.
         return sapien.Pose(p=target.p + self._so_101_grasp_pose_tcp_transform.p, q=target.q)
 
-    def close_gripper(self, t=15):
-        # SO101 gripper joint is likely the last one.
-        # Let's check the robot joints.
-        # In LeRobotGymEnv, we have 6 joints per arm.
-        # Wait, SO101 usually has 6 DOFs including gripper? Or 5+1?
-        # load_arm in sapien_env.py sets 6 values: [0.0, -0.4, 0.2, 2.0, 0.0, 0.3]
-        # The last one (0.3) is likely the gripper.
-        
-        # We need to set the last joint target.
+    def close_gripper(self, t=15, gap=0.1):
+        """
+        缓慢闭合夹爪，gap=0完全闭合，gap=1完全张开，gap=0.5张开一半。
+        """
         qpos = self.robot.get_qpos()
-        qpos[-1] = self.CLOSED
-        
-        # We need to execute this.
-        # We can use follow_path with a dummy path or just step the env.
-        for _ in range(t):
-            # Construct action
+        start = qpos[-1]
+        # gap=0: end=CLOSED, gap=1: end=OPEN
+        end = self.CLOSED * (1 - gap) + self.OPEN * gap
+        for i in range(t):
+            alpha = (i + 1) / t
+            qpos_step = qpos.copy()
+            qpos_step[-1] = (1 - alpha) * start + alpha * end
             left_qpos = self.env.left_arm.get_qpos()
             right_qpos = self.env.right_arm.get_qpos()
-            
             if self.robot == self.env.left_arm:
-                left_qpos = qpos
+                left_qpos = qpos_step
             elif self.robot == self.env.right_arm:
-                right_qpos = qpos
-            
+                right_qpos = qpos_step
             action = np.concatenate([left_qpos, right_qpos])
             self.env.step(action)
             if self.vis:
-                self.env.scene.step() # Render?
+                self.env.scene.step()
 
     def open_gripper(self, t=15):
         qpos = self.robot.get_qpos()
