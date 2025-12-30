@@ -53,8 +53,13 @@ def load_arm(scene, urdf_path, root_x):
     arm = loader.load(urdf_path)
 
     # Set drive properties for position control
+    # 提高夹爪相关关节的夹持力
     for joint in arm.get_active_joints():
-        joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
+        name = joint.get_name().lower()
+        if any(x in name for x in ["gripper", "finger", "jaw", "tip"]):
+            joint.set_drive_property(stiffness=1000, damping=40, force_limit=30.0)
+        else:
+            joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
 
     quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
     quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
@@ -76,6 +81,13 @@ def load_arm(scene, urdf_path, root_x):
 
     for i, joint in enumerate(active_joints):
         joint.set_drive_target(ready_qpos[i])
+
+    # 设置夹爪指尖摩擦力（假设夹爪指尖 link 名称包含 'finger' 或 'gripper'）
+    for link in arm.get_links():
+        if any(name in link.name.lower() for name in ['gripper', 'finger', 'jaw', 'tip']):
+            for shape in link.get_collision_shapes():
+                physx_material = scene.create_physical_material(static_friction=1.0, dynamic_friction=0.8, restitution=0.0)
+                shape.set_physical_material(physx_material)
 
     return arm
 
