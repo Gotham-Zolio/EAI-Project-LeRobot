@@ -68,8 +68,8 @@ class RecordingWrapper:
     def __getattr__(self, name):
         return getattr(self.env, name)
 
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
+    def reset(self, seed=None, **kwargs):
+        obs, info = self.env.reset(seed=seed, **kwargs)
         self.last_obs = obs
         # 清空轨迹
         self.trajectory = {
@@ -170,8 +170,8 @@ class FSMDataCollector:
             self.config.sleep_viewer_sec
         )
         
-        # 重置环境
-        wrapper.reset()
+        # 重置环境，传入 episode_id 作为 seed
+        wrapper.reset(seed=episode_id)
         
         print(f"\n回合 {episode_id + 1}/{self.config.num_episodes}")
         if self.viewer_app:

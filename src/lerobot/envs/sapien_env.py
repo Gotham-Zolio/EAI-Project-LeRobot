@@ -16,10 +16,12 @@ def add_box(scene, center, size, color):
     """Add a thin box (used for boundary lines)."""
     actor_builder = scene.create_actor_builder()
     half = [s / 2 for s in size]
-    material = sapien.render.RenderMaterial()
-    material.base_color = np.array(color)
-    actor_builder.add_box_collision(half_size=half)
-    actor_builder.add_box_visual(half_size=half, material=material)
+    visual_material = sapien.render.RenderMaterial()
+    visual_material.base_color = np.array(color)
+    # 创建物理摩擦材质
+    physx_material = scene.create_physical_material(static_friction=1.0, dynamic_friction=0.8, restitution=0.0)
+    actor_builder.add_box_collision(half_size=half, material=physx_material)
+    actor_builder.add_box_visual(half_size=half, material=visual_material)
     actor = actor_builder.build_static()
     actor.set_pose(sapien.Pose(center))
     return actor
@@ -122,10 +124,11 @@ def add_block(scene, center, color, label="A", rotation_z=0.0):
 
     actor_builder = scene.create_actor_builder()
     half = [s / 2 for s in size]
-    material = sapien.render.RenderMaterial()
-    material.base_color = np.array(color)
-    actor_builder.add_box_collision(half_size=half)
-    actor_builder.add_box_visual(half_size=half, material=material)
+    visual_material = sapien.render.RenderMaterial()
+    visual_material.base_color = np.array(color)
+    physx_material = scene.create_physical_material(static_friction=1.0, dynamic_friction=0.8, restitution=0.0)
+    actor_builder.add_box_collision(half_size=half, material=physx_material)
+    actor_builder.add_box_visual(half_size=half, material=visual_material)
 
     actor = actor_builder.build()
     actor.name = f"block_{label}"
@@ -231,30 +234,35 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
 
 
 # ---------------- Scene configurations ----------------
-def get_random_pose(x_range, y_range, z_height):
-    x = np.random.uniform(*x_range)
-    y = np.random.uniform(*y_range)
+def get_random_pose(x_range, y_range, z_height, rng=None):
+    if rng is None:
+        x = np.random.uniform(*x_range)
+        y = np.random.uniform(*y_range)
+        rot_z = np.random.uniform(0, np.pi / 2)
+    else:
+        x = rng.uniform(*x_range)
+        y = rng.uniform(*y_range)
+        rot_z = rng.uniform(0, np.pi / 2)
     z = z_height
-    rot_z = np.random.uniform(0, np.pi / 2)
     return [x, y, z], rot_z
 
-def setup_scene_lift(scene):
+def setup_scene_lift(scene, rng=None):
     """Task Lift: one red block in the rightmost box"""
     # Optimized spawn range for better arm reachability
     # X: 44~47cm (reduced from 50cm - high X values cause IK failures even with good Y)
     # Y: 22~24.5cm (safe range verified by testing)
     # Test data: X>48cm causes IK failures or growing offsets; X~44-47cm gives 12-15cm initial offset
-    pos, rot = get_random_pose([44.0 * CM, 47.0 * CM], [22.0 * CM, 24.5 * CM], 1.5 * CM)
+    pos, rot = get_random_pose([44.0 * CM, 47.0 * CM], [22.0 * CM, 24.5 * CM], 1.5 * CM, rng=rng)
     actor = add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
     return [actor]
 
 
-def setup_scene_stack(scene):
+def setup_scene_stack(scene, rng=None):
     """Task Sort: red + green in rightmost box"""
     # x in 41.1~54.7cm, y in 18.3~31.7cm, dist >= 4.5cm
     while True:
-        pos1, rot1 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-        pos2, rot2 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+        pos1, rot1 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
+        pos2, rot2 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
         dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
         if dist >= 4.5 * CM:
             break
@@ -264,12 +272,12 @@ def setup_scene_stack(scene):
     return [a1, a2]
 
 
-def setup_scene_sort(scene):
+def setup_scene_sort(scene, rng=None):
     """Task Stack: red + green in the middle box"""
     # x in 23.7~36.3cm, y in 18.3~31.7cm, dist >= 4.5cm
     while True:
-        pos1, rot1 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-        pos2, rot2 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
+        pos1, rot1 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
+        pos2, rot2 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
         dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
         if dist >= 4.5 * CM:
             break
@@ -278,14 +286,14 @@ def setup_scene_sort(scene):
     a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
     return [a1, a2]
 
-def setup_scene(scene, task_name):
+def setup_scene(scene, task_name, rng=None):
     if task_name == "default":
         return []
     elif task_name == "lift":
-        return setup_scene_lift(scene)
+        return setup_scene_lift(scene, rng=rng)
     elif task_name == "sort":
-        return setup_scene_sort(scene)
+        return setup_scene_sort(scene, rng=rng)
     elif task_name == "stack":
-        return setup_scene_stack(scene)
+        return setup_scene_stack(scene, rng=rng)
     else:
         raise ValueError(f"Unknown task: {task_name}")
