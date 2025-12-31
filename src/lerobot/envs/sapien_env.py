@@ -68,7 +68,7 @@ class SO101TaskEnv(BaseEnv):
             "world_demo_camera", world_cam_pose, 640, 480, np.deg2rad(50), 0.01, 50.0
         )
 
-    def _load_scene(self, options: dict):
+    def _load_scene(self, options: dict, task_name=None, rng=None):
         # pick_cube_so101.py style: TableSceneBuilder for table/boundaries, then build cube, goal, and spawn region
         self.table_scene = TableSceneBuilder(self, robot_init_qpos_noise=self.robot_init_qpos_noise)
         self.table_scene.build()
