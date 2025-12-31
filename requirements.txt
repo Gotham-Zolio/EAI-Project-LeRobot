@@ -14,7 +14,7 @@ torchvision==0.22.1
 
 # --- Robotics / Simulation ---
 sapien>=3.0,<3.1
-mani-skill==3.0.0b22
+mani-skill-nightly
 mplib==0.1.1
 
 # --- Utilities ---

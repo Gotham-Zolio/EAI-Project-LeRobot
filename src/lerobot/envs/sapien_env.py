@@ -1,291 +1,407 @@
+from typing import Any, Dict, Union
 import numpy as np
 import sapien
+from sapien import Entity
 from sapien.pysapien.render import RenderCameraComponent
-from sapien import Entity, Pose
 from PIL import Image, ImageDraw, ImageFont
 from scipy.spatial.transform import Rotation as R
 from lerobot.common.camera import (
     FRONT_CAM_W, FRONT_CAM_H, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY
 )
+# === ManiSkill imports for agent/robot management ===
+import mani_skill.envs.utils.randomization as randomization
+from mani_skill.envs.sapien_env import BaseEnv
+from mani_skill.envs.tasks.tabletop.pick_cube_cfgs import PICK_CUBE_CONFIGS
+from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils import sapien_utils
+from mani_skill.utils.building import actors
+from mani_skill.utils.registration import register_env
+from mani_skill.utils.scene_builder.table import TableSceneBuilder
+from mani_skill.utils.structs.pose import Pose
+
+from lerobot.agents.robots.so101.so_101 import SO101
+
 
 # ---------------- Global Constants ----------------
 CM = 0.01
 
 # ---------------- Utility / Scene building ----------------
-def add_box(scene, center, size, color):
-    """Add a thin box (used for boundary lines)."""
-    actor_builder = scene.create_actor_builder()
-    half = [s / 2 for s in size]
-    material = sapien.render.RenderMaterial()
-    material.base_color = np.array(color)
-    actor_builder.add_box_collision(half_size=half)
-    actor_builder.add_box_visual(half_size=half, material=material)
-    actor = actor_builder.build_static()
-    actor.set_pose(sapien.Pose(center))
-    return actor
 
 
-def add_floor(scene):
-    width = 120 * CM
-    height = 60 * CM
-    thickness = 0.01
+# =================== ManiSkill-style Env ===================
+class SO101TaskEnv(BaseEnv):
 
-    builder = scene.create_actor_builder()
-    half = [width / 2, height / 2, thickness / 2]
+    SUPPORTED_ROBOTS = ["so101_left", "so101_right"]
+    agent_left: SO101
+    agent_right: SO101
+    robot_init_qpos_noise = 0.02
+    # front_cam (sensor_cam)
+    sensor_cam_eye_pos = np.array([0.316, 0.26, 0.407])
+    sensor_cam_target_pos = np.array([0.316, 0.26, 0.0])
+    # world demo camera (human_cam)
+    human_cam_eye_pos = np.array([0.5, 0.55, 0.15])
+    human_cam_target_pos = np.array([0.5, 0.25, 0.15])
+    max_goal_height = 0.07
+    lock_z = True
 
-    material = sapien.render.RenderMaterial()
-    material.base_color = np.array([0.92, 0.92, 0.92, 1])
-    material.specular = 0.1
+    def __init__(self, *args, robot_uids="so101", robot_init_qpos_noise=0.02, **kwargs):
+        self.robot_init_qpos_noise = robot_init_qpos_noise
+        super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
-    builder.add_box_collision(half_size=half)
-    builder.add_box_visual(half_size=half, material=material)
+    @property
+    def _default_sensor_configs(self):
+        # pick_cube style front camera config
+        front_cam_pose = sapien_utils.look_at(
+            eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
+        )
+        return [CameraConfig(
+            "front_camera", front_cam_pose, 640, 480, np.deg2rad(50), 0.01, 50.0
+        )]
 
-    floor = builder.build_static()
-    floor.set_pose(sapien.Pose([width/2, height/2, -thickness/2]))
-    return floor
+    @property
+    def _default_human_render_camera_configs(self):
+        # pick_cube style world demo camera config
+        world_cam_pose = sapien_utils.look_at(
+            eye=self.human_cam_eye_pos, target=self.human_cam_target_pos
+        )
+        return CameraConfig(
+            "world_demo_camera", world_cam_pose, 640, 480, np.deg2rad(50), 0.01, 50.0
+        )
 
-
-def load_arm(scene, urdf_path, root_x):
-    loader = scene.create_urdf_loader()
-    loader.fix_root_link = True
-    arm = loader.load(urdf_path)
-
-    # Set drive properties for position control
-    for joint in arm.get_active_joints():
-        joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
-
-    quat = R.from_euler('xyz', [0.0, 0.0, np.pi / 2]).as_quat()
-    quat_sapien = np.array([quat[3], quat[0], quat[1], quat[2]], dtype=np.float32)
-
-    arm.set_root_pose(sapien.Pose([root_x, 0.0, 0.0], quat_sapien))
-
-    base_link = arm.get_links()[0]
-    aabb_min, aabb_max = base_link.get_global_aabb_fast()
-    base_width_y = aabb_max[1] - aabb_min[1]
-
-    root_y = -aabb_max[1] + base_width_y
-    arm.set_root_pose(sapien.Pose([root_x, root_y, 0.0], quat_sapien))
-
-    active_joints = arm.get_active_joints()
-    n = len(active_joints)
-    ready_qpos = np.zeros(n, dtype=np.float32)
-    ready_qpos[:6] = np.array([0.0, -0.4, 0.2, 2.0, 0.0, 0.3], dtype=np.float32)
-    arm.set_qpos(ready_qpos)
-
-    for i, joint in enumerate(active_joints):
-        joint.set_drive_target(ready_qpos[i])
-
-    return arm
-
-
-
-def add_wrist_camera(robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.05, near=0.01, far=5.0):
-    """
-    Attach a RenderCameraComponent to a link (wrist). Use set_local_pose so it
-    respects SAPIEN 3.x API (no set_world_pose for RenderCameraComponent).
-    Returns the camera component.
-    """
-    link = robot.find_link_by_name(link_name)
-    if link is None:
-        raise ValueError(f"Link named '{link_name}' not found on robot")
-
-    cam_w = 640
-    cam_h = 480
-    fovy = np.deg2rad(fovy_deg)
-    fx = cam_w / (2 * np.tan(fovy / 2))
-    fy = fx
-    cx = cam_w / 2
-    cy = cam_h / 2
-
-    cam = RenderCameraComponent(width=cam_w, height=cam_h)
-    cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
-
-    link.entity.add_component(cam)
-
-    offset = np.array([0.0, 0.0, z_offset], dtype=np.float32)
-    quat = R.from_euler('xyz', [-np.pi/2, 0.0, 0.0]).as_quat()  # xyzw
-    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]         # wxyz
-
-    cam.set_local_pose(sapien.Pose(offset, quat_sapien))
-    return cam
+    def _load_scene(self, options: dict):
+        # pick_cube_so101.py style: TableSceneBuilder for table/boundaries, then build cube, goal, and spawn region
+        self.table_scene = TableSceneBuilder(self, robot_init_qpos_noise=self.robot_init_qpos_noise)
+        self.table_scene.build()
+        # Visualize cube spawn region (thin blue box, non-colliding)
+        self.cube_spawn_center = getattr(self, 'cube_spawn_center', (0.48, 0.25))
+        self.cube_half_size = getattr(self, 'cube_half_size', 0.015)
+        self.cube_spawn_half_size = getattr(self, 'cube_spawn_half_size', 0.08)
+        spawn_center = [self.cube_spawn_center[0], self.cube_spawn_center[1], self.cube_half_size]
+        spawn_half_size = [self.cube_spawn_half_size, self.cube_spawn_half_size, 1e-4]
+        self.cube_spawn_vis = actors.build_box(
+            self.scene,
+            half_sizes=spawn_half_size,
+            color=[0, 0, 1, 0.2],
+            name="cube_spawn_region",
+            add_collision=False,
+            initial_pose=sapien.Pose(p=spawn_center),
+        )
+        self.cube = actors.build_cube(
+            self.scene,
+            half_size=self.cube_half_size,
+            color=[1, 0, 0, 1],
+            name="cube",
+            initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
+        )
+        self.goal_thresh = getattr(self, 'goal_thresh', 0.01875)
+        self.goal_site = actors.build_sphere(
+            self.scene,
+            radius=self.goal_thresh,
+            color=[0, 1, 0, 1],
+            name="goal_site",
+            body_type="kinematic",
+            add_collision=False,
+            initial_pose=sapien.Pose(),
+        )
+        self._hidden_objects = getattr(self, '_hidden_objects', [])
+        self._hidden_objects.append(self.goal_site)
 
 
-def add_block(scene, center, color, label="A", rotation_z=0.0):
-    """
-    Add a colored block to the scene.
-    center: [x,y,z] in meters (world frame)
-    color: [r,g,b,a] values in 0..1
-    label: a short text label (drawn onto a PIL image; SAPIEN 3.0 does not support set_texture here)
-    rotation_z: rotation around z-axis in radians
-    """
-    size = [3 * CM, 3 * CM, 3 * CM]
+    # TableSceneBuilder now handles boundaries and table, so this is no longer needed.
 
-    actor_builder = scene.create_actor_builder()
-    half = [s / 2 for s in size]
-    material = sapien.render.RenderMaterial()
-    material.base_color = np.array(color)
-    actor_builder.add_box_collision(half_size=half)
-    actor_builder.add_box_visual(half_size=half, material=material)
+    def _load_agent(self, options: dict):
+        # 采用 ManiSkill/pick_cube_so101.py 风格，调用父类自动实例化 agent
+        # 左臂和右臂初始位姿可根据实际需求调整
+        super()._load_agent(options)
+        # 给左右臂分别添加腕部摄像头（如有需要）
+        if hasattr(self, 'agent_left') and hasattr(self.agent_left, 'robot'):
+            self.left_wrist_cam = self.add_wrist_camera(self.agent_left.robot)
+        if hasattr(self, 'agent_right') and hasattr(self.agent_right, 'robot'):
+            self.right_wrist_cam = self.add_wrist_camera(self.agent_right.robot)
 
-    actor = actor_builder.build()
-    actor.name = f"block_{label}"
+    def initialize_agent(self, env_idx):
+        b = len(env_idx)
+        qpos = np.array([0, 0, 0, np.pi / 2, 0, 0])
+        qpos_left = (
+            self._episode_rng.normal(0, self.robot_init_qpos_noise, (b, len(qpos)))
+            + qpos
+        )
+        qpos_right = (
+            self._episode_rng.normal(0, self.robot_init_qpos_noise, (b, len(qpos)))
+            + qpos
+        )
+        self.agent_left.reset(qpos_left)
+        left_pose = torch.tensor([0.119, 0, 0, 1, 0, 0, 0], dtype=torch.float32)
+        right_pose = torch.tensor([0.481, 0, 0, 1, 0, 0, 0], dtype=torch.float32)
+        assert left_pose.shape == (7,), f"left_pose shape must be (7,), got {left_pose.shape}"
+        assert right_pose.shape == (7,), f"right_pose shape must be (7,), got {right_pose.shape}"
+        self.agent_left.robot.set_pose(Pose(left_pose))
+        self.agent_right.reset(qpos_right)
+        self.agent_right.robot.set_pose(Pose(right_pose))
 
-    tex_size = 256
-    img = Image.new("RGBA", (tex_size, tex_size),
-                    (int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255))
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), label, font=font)
-    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text(((tex_size - w) / 2, (tex_size - h) / 2), label, fill=(255, 255, 255, 255), font=font)
-    tex_np = np.array(img).astype(np.float32) / 255.0
+    # _load_scene_lift is not needed; pick_cube_so101.py does not use it. All scene setup is in _load_scene.
 
-    quat = R.from_euler('z', rotation_z).as_quat()
-    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
-    actor.set_pose(sapien.Pose(center, quat_sapien))
-    return actor
+    def add_goal_site(self, scene, center, radius, color):
+        # Use ManiSkill's actors.build_sphere for goal site
+        actor = actors.build_sphere(
+            scene,
+            radius=radius,
+            color=color,
+            name="goal_site",
+            body_type="kinematic",
+            add_collision=False,
+            initial_pose=sapien.Pose(center),
+        )
+        return actor
 
-
-# ---------------- Scene assembly ----------------
-def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True, headless: bool = False):
-    """
-    Create the scene, robots and cameras.
-    Returns: scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam
-    """
-    # ------ Scene setup ------
-    scene = sapien.Scene()
-    scene.set_timestep(1 / 240)
-    scene.set_ambient_light([0.3, 0.3, 0.3])
-    scene.add_directional_light([0.3, 1, -0.3], [0.7, 0.7, 0.7])
-    scene.add_directional_light([-0.3, 1, -0.1], [0.4, 0.4, 0.4])
-
-    # ------ Floor (Desk) ------
-    add_floor(scene)
-
-    # ------ Boundary lines ------
-    BORDER = 1.8 * CM
-    d = 0.01 * CM
-    black = [0, 0, 0, 1]
-
-    add_box(scene, center=[60 * CM, 30 * CM, d / 2], size=[BORDER, 60 * CM, d], color=black)
-    add_box(scene, center=[2.9 * CM, 25 * CM, d / 2], size=[BORDER, 16.4 * CM, d], color=black)
-    add_box(scene, center=[21.3 * CM, 25 * CM, d / 2], size=[BORDER, 16.4 * CM, d], color=black)
-    add_box(scene, center=[38.7 * CM, 25 * CM, d / 2], size=[BORDER, 16.4 * CM, d], color=black)
-    add_box(scene, center=[57.1 * CM, 25 * CM, d / 2], size=[BORDER, 16.4 * CM, d], color=black)
-    add_box(scene, center=[21.3 * CM, 7.5 * CM, d / 2], size=[BORDER, 15 * CM, d], color=black)
-    add_box(scene, center=[38.7 * CM, 7.5 * CM, d / 2], size=[BORDER, 15 * CM, d], color=black)
-    add_box(scene, center=[30 * CM, 15.9 * CM, d / 2], size=[56 * CM, BORDER, d], color=black)
-    add_box(scene, center=[30 * CM, 34.1 * CM, d / 2], size=[56 * CM, BORDER, d], color=black)
-
-    # ------ Front camera ------
-    cam_mount = Entity()
-    front_cam = RenderCameraComponent(width=FRONT_CAM_W, height=FRONT_CAM_H)
-    near, far = 0.01, 50.0
-    front_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
-    cam_mount.add_component(front_cam)
-
-    cam_x, cam_y, cam_z = 31.6 * CM, 26.0 * CM, 40.7 * CM
-    quat = R.from_euler('xyz', [0.0, np.pi / 2, -np.pi / 2]).as_quat()
-    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
-    cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
-    scene.add_entity(cam_mount)
-
-    # ------ Robot arms ------
-    urdf_path = "assets/SO101/so101.urdf"
-    left_arm = load_arm(scene, urdf_path, root_x=11.9 * CM)
-    right_arm = load_arm(scene, urdf_path, root_x=48.1 * CM)
-
-    for arm in [left_arm, right_arm]:
-        qpos = arm.get_qpos()
-        for i, joint in enumerate(arm.get_active_joints()):
-            joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
-            joint.set_drive_target(qpos[i])
-    
-    for _ in range(100):
-        scene.step()
+    def load_scene(self, scene, task_name, rng=None):
+        if task_name == "default":
+            return []
+        elif task_name == "lift":
+            return self._load_scene_lift(scene, rng=rng)
+        elif task_name == "sort":
+            return self._load_scene_sort(scene, rng=rng)
+        elif task_name == "stack":
+            return self._load_scene_stack(scene, rng=rng)
+        else:
+            raise ValueError(f"Unknown task: {task_name}")
         
-    for arm in [left_arm, right_arm]:
-        qpos = arm.get_qpos()
-        for i, joint in enumerate(arm.get_active_joints()):
-            joint.set_drive_property(stiffness=400, damping=40, force_limit=3.0)
-            joint.set_drive_target(qpos[i])
+    def add_wrist_camera(self, robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.05, near=0.01, far=5.0):
+        """
+        Attach a RenderCameraComponent to a link (wrist). Use set_local_pose so it
+        respects SAPIEN 3.x API (no set_world_pose for RenderCameraComponent).
+        Returns the camera component.
+        """
+        link = robot.find_link_by_name(link_name)
+        if link is None:
+            raise ValueError(f"Link named '{link_name}' not found on robot")
 
-    # ------ Wrist cameras ------
-    left_wrist_cam = add_wrist_camera(left_arm, link_name="camera_link", fovy_deg=70.0, z_offset=0.07)
-    right_wrist_cam = add_wrist_camera(right_arm, link_name="camera_link", fovy_deg=70.0, z_offset=0.07)
+        cam_w = 640
+        cam_h = 480
+        fovy = np.deg2rad(fovy_deg)
+        fx = cam_w / (2 * np.tan(fovy / 2))
+        fy = fx
+        cx = cam_w / 2
+        cy = cam_h / 2
 
-    # ------ World demo camera ------
-    world_cam_mount = Entity()
-    world_cam = RenderCameraComponent(width=FRONT_CAM_W, height=FRONT_CAM_H)
-    near, far = 0.01, 50.0
-    world_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
-    world_cam_mount.add_component(world_cam)
+        cam = RenderCameraComponent(width=cam_w, height=cam_h)
+        cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
 
-    cam_x, cam_y, cam_z = -14.0 * CM, 60.0 * CM, 40.0 * CM  # 调低 z，调整 y
-    quat = R.from_euler('xyz', [0.0, np.pi / 6, -np.pi / 4]).as_quat()
-    quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
-    world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
-    scene.add_entity(world_cam_mount)
+        link.entity.add_component(cam)
 
-    return scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam, world_cam
+        offset = np.array([0.0, 0.0, z_offset], dtype=np.float32)
+        quat = R.from_euler('xyz', [-np.pi/2, 0.0, 0.0]).as_quat()  # xyzw
+        quat_sapien = [quat[3], quat[0], quat[1], quat[2]]         # wxyz
 
-
-# ---------------- Scene configurations ----------------
-def get_random_pose(x_range, y_range, z_height):
-    x = np.random.uniform(*x_range)
-    y = np.random.uniform(*y_range)
-    z = z_height
-    rot_z = np.random.uniform(0, 2 * np.pi)
-    return [x, y, z], rot_z
-
-def setup_scene_lift(scene):
-    """Task Lift: one red block in the rightmost box"""
-    # Optimized spawn range for better arm reachability
-    # X: 44~47cm (reduced from 50cm - high X values cause IK failures even with good Y)
-    # Y: 22~24.5cm (safe range verified by testing)
-    # Test data: X>48cm causes IK failures or growing offsets; X~44-47cm gives 12-15cm initial offset
-    pos, rot = get_random_pose([44.0 * CM, 47.0 * CM], [22.0 * CM, 24.5 * CM], 1.5 * CM)
-    actor = add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
-    return [actor]
+        cam.set_local_pose(sapien.Pose(offset, quat_sapien))
+        return cam
 
 
-def setup_scene_stack(scene):
-    """Task Sort: red + green in rightmost box"""
-    # x in 41.1~54.7cm, y in 18.3~31.7cm, dist >= 4.5cm
-    while True:
-        pos1, rot1 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-        pos2, rot2 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-        dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
-        if dist >= 4.5 * CM:
-            break
+# # ---------------- Scene configurations ----------------
+# def get_random_pose(x_range, y_range, z_height, rng=None):
+#     if rng is None:
+#         x = np.random.uniform(*x_range)
+#         y = np.random.uniform(*y_range)
+#         rot_z = np.random.uniform(np.pi / 4, np.pi / 2)
+#     else:
+#         x = rng.uniform(*x_range)
+#         y = rng.uniform(*y_range)
+#         rot_z = rng.uniform(np.pi / 4, np.pi / 2)
+#     z = z_height
+#     return [x, y, z], rot_z
+
+# def setup_scene_lift(scene, rng=None):
+#     """Task Lift: one red block in the rightmost box"""
+#     # Optimized spawn range for better arm reachability
+#     # X: 44~47cm (reduced from 50cm - high X values cause IK failures even with good Y)
+#     # Y: 22~24.5cm (safe range verified by testing)
+#     # Test data: X>48cm causes IK failures or growing offsets; X~44-47cm gives 12-15cm initial offset
+#     pos, rot = get_random_pose([44.0 * CM, 47.0 * CM], [22.0 * CM, 24.5 * CM], 1.5 * CM, rng=rng)
+#     actor = add_block(scene, center=pos, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot)
+#     return [actor]
+
+
+# def setup_scene_stack(scene, rng=None):
+#     """Task Sort: red + green in rightmost box"""
+#     # x in 41.1~54.7cm, y in 18.3~31.7cm, dist >= 4.5cm
+#     while True:
+#         pos1, rot1 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
+#         pos2, rot2 = get_random_pose([41.1 * CM, 54.7 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
+#         dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
+#         if dist >= 4.5 * CM:
+#             break
             
-    a1 = add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot1)
-    a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
-    return [a1, a2]
+#     a1 = add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot1)
+#     a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
+#     return [a1, a2]
 
 
-def setup_scene_sort(scene):
-    """Task Stack: red + green in the middle box"""
-    # x in 23.7~36.3cm, y in 18.3~31.7cm, dist >= 4.5cm
-    while True:
-        pos1, rot1 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-        pos2, rot2 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM)
-        dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
-        if dist >= 4.5 * CM:
-            break
+# def setup_scene_sort(scene, rng=None):
+#     """Task Stack: red + green in the middle box"""
+#     # x in 23.7~36.3cm, y in 18.3~31.7cm, dist >= 4.5cm
+#     while True:
+#         pos1, rot1 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
+#         pos2, rot2 = get_random_pose([23.7 * CM, 36.3 * CM], [18.3 * CM, 31.7 * CM], 1.5 * CM, rng=rng)
+#         dist = np.linalg.norm(np.array(pos1[:2]) - np.array(pos2[:2]))
+#         if dist >= 4.5 * CM:
+#             break
 
-    a1 = add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot1)
-    a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
-    return [a1, a2]
+#     a1 = add_block(scene, center=pos1, color=[1.0, 0.0, 0.0, 1.0], label="Red", rotation_z=rot1)
+#     a2 = add_block(scene, center=pos2, color=[0.0, 0.8, 0.0, 1.0], label="Green", rotation_z=rot2)
+#     return [a1, a2]
 
-def setup_scene(scene, task_name):
-    if task_name == "default":
-        return []
-    elif task_name == "lift":
-        return setup_scene_lift(scene)
-    elif task_name == "sort":
-        return setup_scene_sort(scene)
-    elif task_name == "stack":
-        return setup_scene_stack(scene)
-    else:
-        raise ValueError(f"Unknown task: {task_name}")
+
+
+# def setup_scene_stack(
+#     scene,
+#     cube_half_size=0.015,
+#     goal_thresh=0.01875,
+#     cube_spawn_half_size=0.08,
+#     cube_spawn_center=(0.48, 0.25),
+#     max_goal_height=0.07,
+#     rng=None,
+#     visualize_spawn=True,
+#     lock_z=True,
+# ):
+#     """
+#     Setup a stack task scene: two cubes (red, green) in spawn region, two goal sites.
+#     Returns: [cube_actors], [goal_site_actors], (optional) cube_spawn_vis
+#     """
+#     if rng is None:
+#         rng = np.random
+#     cube_spawn_vis = None
+#     if visualize_spawn:
+#         spawn_center = [cube_spawn_center[0], cube_spawn_center[1], cube_half_size]
+#         cube_spawn_vis = add_box(
+#             scene,
+#             center=spawn_center,
+#             size=[2 * cube_spawn_half_size, 2 * cube_spawn_half_size, 2e-4],
+#             color=[0, 0, 1, 0.2],
+#         )
+#     # 采样两个cube位置，保证距离大于cube边长
+#     while True:
+#         xy1 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2)
+#         xy2 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2)
+#         xy1[0] += cube_spawn_center[0]
+#         xy1[1] += cube_spawn_center[1]
+#         xy2[0] += cube_spawn_center[0]
+#         xy2[1] += cube_spawn_center[1]
+#         if np.linalg.norm(xy1 - xy2) >= 2 * cube_half_size:
+#             break
+#     z = cube_half_size
+#     rot1 = rng.uniform(0, 2 * np.pi) if lock_z else 0.0
+#     rot2 = rng.uniform(0, 2 * np.pi) if lock_z else 0.0
+#     cube1 = add_block(
+#         scene,
+#         center=[xy1[0], xy1[1], z],
+#         color=[1, 0, 0, 1],
+#         label="red",
+#         rotation_z=rot1,
+#         size=[2 * cube_half_size] * 3,
+#     )
+#     cube2 = add_block(
+#         scene,
+#         center=[xy2[0], xy2[1], z],
+#         color=[0, 0.8, 0, 1],
+#         label="green",
+#         rotation_z=rot2,
+#         size=[2 * cube_half_size] * 3,
+#     )
+#     # 采样两个goal位置
+#     goal_xy1 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2) + np.array(cube_spawn_center)
+#     goal_xy2 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2) + np.array(cube_spawn_center)
+#     goal_z1 = rng.uniform(0, max_goal_height) + z
+#     goal_z2 = rng.uniform(0, max_goal_height) + z
+#     goal1 = add_goal_site(
+#         scene,
+#         center=[goal_xy1[0], goal_xy1[1], goal_z1],
+#         radius=goal_thresh,
+#         color=[0, 1, 0, 1],
+#     )
+#     goal2 = add_goal_site(
+#         scene,
+#         center=[goal_xy2[0], goal_xy2[1], goal_z2],
+#         radius=goal_thresh,
+#         color=[0, 1, 0, 1],
+#     )
+#     if visualize_spawn:
+#         return [cube1, cube2], [goal1, goal2], cube_spawn_vis
+#     else:
+#         return [cube1, cube2], [goal1, goal2]
+
+# def setup_scene_sort(
+#     scene,
+#     cube_half_size=0.015,
+#     goal_thresh=0.01875,
+#     cube_spawn_half_size=0.08,
+#     cube_spawn_center=(0.24, 0.25),
+#     max_goal_height=0.07,
+#     rng=None,
+#     visualize_spawn=True,
+#     lock_z=True,
+# ):
+#     """
+#     Setup a sort task scene: two cubes (red, green) in spawn region, two goal sites.
+#     Returns: [cube_actors], [goal_site_actors], (optional) cube_spawn_vis
+#     """
+#     if rng is None:
+#         rng = np.random
+#     cube_spawn_vis = None
+#     if visualize_spawn:
+#         spawn_center = [cube_spawn_center[0], cube_spawn_center[1], cube_half_size]
+#         cube_spawn_vis = add_box(
+#             scene,
+#             center=spawn_center,
+#             size=[2 * cube_spawn_half_size, 2 * cube_spawn_half_size, 2e-4],
+#             color=[0, 0, 1, 0.2],
+#         )
+#     # 采样两个cube位置，保证距离大于cube边长
+#     while True:
+#         xy1 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2)
+#         xy2 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2)
+#         xy1[0] += cube_spawn_center[0]
+#         xy1[1] += cube_spawn_center[1]
+#         xy2[0] += cube_spawn_center[0]
+#         xy2[1] += cube_spawn_center[1]
+#         if np.linalg.norm(xy1 - xy2) >= 2 * cube_half_size:
+#             break
+#     z = cube_half_size
+#     rot1 = rng.uniform(0, 2 * np.pi) if lock_z else 0.0
+#     rot2 = rng.uniform(0, 2 * np.pi) if lock_z else 0.0
+#     cube1 = add_block(
+#         scene,
+#         center=[xy1[0], xy1[1], z],
+#         color=[1, 0, 0, 1],
+#         label="red",
+#         rotation_z=rot1,
+#         size=[2 * cube_half_size] * 3,
+#     )
+#     cube2 = add_block(
+#         scene,
+#         center=[xy2[0], xy2[1], z],
+#         color=[0, 0.8, 0, 1],
+#         label="green",
+#         rotation_z=rot2,
+#         size=[2 * cube_half_size] * 3,
+#     )
+#     # 采样两个goal位置
+#     goal_xy1 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2) + np.array(cube_spawn_center)
+#     goal_xy2 = rng.uniform(-cube_spawn_half_size, cube_spawn_half_size, size=2) + np.array(cube_spawn_center)
+#     goal_z1 = rng.uniform(0, max_goal_height) + z
+#     goal_z2 = rng.uniform(0, max_goal_height) + z
+#     goal1 = add_goal_site(
+#         scene,
+#         center=[goal_xy1[0], goal_xy1[1], goal_z1],
+#         radius=goal_thresh,
+#         color=[0, 1, 0, 1],
+#     )
+#     goal2 = add_goal_site(
+#         scene,
+#         center=[goal_xy2[0], goal_xy2[1], goal_z2],
+#         radius=goal_thresh,
+#         color=[0, 1, 0, 1],
+#     )
+#     if visualize_spawn:
+#         return [cube1, cube2], [goal1, goal2], cube_spawn_vis
+#     else:
+#         return [cube1, cube2], [goal1, goal2]
