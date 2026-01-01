@@ -12,6 +12,8 @@ batch_size: 8
 lr: 1e-4
 epochs: 100
 save_freq: 10
-# Auto-detect dataset from standard structure (data/datasets/{task}/raw/{task}_v*.h5)
-# Or set explicitly: dataset_path: data/datasets/lift/raw/lift_v1.0_20250101.h5
+# Dataset configuration
+# Option 1: Specify exact path
 dataset_path: null
+# Option 2: Specify version (will auto-find data/datasets/{task}/raw/{task}_{version}_*.h5)
+dataset_version: null  # e.g., "v1.0", "v1.1", or null for latest

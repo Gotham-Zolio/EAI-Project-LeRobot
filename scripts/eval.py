@@ -20,14 +20,32 @@ from tools.web_viewer.viewer import WebViewer
 
 
 def load_stats_from_checkpoint_dir(checkpoint_path):
-    """Load stats.json from the same directory as the checkpoint."""
-    checkpoint_dir = Path(checkpoint_path).parent
-    stats_path = checkpoint_dir / "stats.json"
+    """Load stats.json from the checkpoint directory.
+    
+    Supports both old and new structures:
+    - Old: logs/train/{task}/{date}/{time}/checkpoint_epoch_100.pth
+    - New: logs/train/{task}/{date}/{time}/checkpoints/checkpoint_epoch_100.pth
+    """
+    checkpoint_path = Path(checkpoint_path)
+    
+    # If checkpoint is in checkpoints/ subdirectory, go up one level
+    if checkpoint_path.parent.name == "checkpoints":
+        stats_dir = checkpoint_path.parent.parent
+    else:
+        stats_dir = checkpoint_path.parent
+    
+    stats_path = stats_dir / "stats.json"
     
     if stats_path.exists():
         with open(stats_path, "r") as f:
             stats = json.load(f)
         print(f"Loaded stats from {stats_path}")
+        
+        # Display dataset info if available
+        if "dataset_version" in stats:
+            print(f"Dataset: {stats.get('dataset_path', 'N/A')}")
+            print(f"Version: {stats.get('dataset_version', 'unknown')}")
+        
         return stats
     else:
         print(f"Warning: stats.json not found at {stats_path}")
@@ -202,7 +220,12 @@ def main(checkpoint_path, task, num_episodes=10, device="cuda", headless=False, 
     print(f"{'='*60}\n")
     
     # Save results
-    results_dir = Path(checkpoint_path).parent / "eval_results"
+    # Save to the same level as stats.json (handle both old and new structures)
+    checkpoint_path_obj = Path(checkpoint_path)
+    if checkpoint_path_obj.parent.name == "checkpoints":
+        results_dir = checkpoint_path_obj.parent.parent / "eval_results"
+    else:
+        results_dir = checkpoint_path_obj.parent / "eval_results"
     results_dir.mkdir(exist_ok=True)
     
     results = {
