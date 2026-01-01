@@ -12,4 +12,6 @@ batch_size: 8
 lr: 1e-4
 epochs: 100
 save_freq: 10
-dataset_path: null  # optional override, e.g., data/lift_demo.h5
+# Auto-detect dataset from standard structure (data/datasets/{task}/raw/{task}_v*.h5)
+# Or set explicitly: dataset_path: data/datasets/lift/raw/lift_v1.0_20250101.h5
+dataset_path: null

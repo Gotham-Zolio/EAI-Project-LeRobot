@@ -16,6 +16,8 @@ Features:
 import sys
 import os
 import tyro
+import json
+from datetime import datetime
 import numpy as np
 import h5py
 from dataclasses import dataclass
@@ -37,8 +39,9 @@ class CollectionConfig:
     Data collection configuration.
     """
     task: str = "lift"  # Task type: lift, stack, sort
-    num_episodes: int = 10  # Number of episodes to collect
-    save_dir: str = str(Path(__file__).resolve().parents[1] / "data")  # Save directory under repo/data
+    num_episodes: int = 50  # Number of episodes to collect (append to existing)
+    version: str = "v1.0"  # Version string for dataset tracking
+    save_dir: str = str(Path(__file__).resolve().parents[1] / "data" / "datasets")  # data/datasets/{task}
     max_steps: int = 300  # Max steps per episode
     headless: bool = True  # Headless mode
     verbose: bool = False  # Verbose output
@@ -220,15 +223,29 @@ class FSMDataCollector:
         """
         print(f"\nSaving data to: {save_path}")
         try:
-            with h5py.File(save_path, "w") as f:
+            mode = "a" if save_path.exists() else "w"
+            with h5py.File(save_path, mode) as f:
+                # Find next episode index
+                start_ep_id = 0
+                if "episode_0" in f:
+                    existing_eps = [k for k in f.keys() if k.startswith("episode_")]
+                    if existing_eps:
+                        max_id = max(int(k.split("_")[1]) for k in existing_eps)
+                        start_ep_id = max_id + 1
+
                 # Metadata
+                total_episodes = start_ep_id + len(trajectories)
                 f.attrs["task"] = self.config.task
-                f.attrs["num_episodes"] = len(trajectories)
+                f.attrs["version"] = self.config.version
+                f.attrs["num_episodes"] = total_episodes
                 f.attrs["collection_method"] = "fsm_ik"
-                f.attrs["cameras"] = self.cameras
+                f.attrs["last_updated"] = datetime.now().isoformat()
+                if "cameras" not in f.attrs:
+                    f.attrs["cameras"] = self.cameras
 
                 # Save each episode
-                for ep_id, traj in enumerate(trajectories):
+                for i, traj in enumerate(trajectories):
+                    ep_id = start_ep_id + i
                     grp = f.create_group(f"episode_{ep_id}")
                     grp.create_dataset("qpos", data=np.array(traj["qpos"], dtype=np.float32))
                     grp.create_dataset("action", data=np.array(traj["action"], dtype=np.float32))
@@ -242,7 +259,7 @@ class FSMDataCollector:
                                 cam,
                                 data=np.array(traj["images"][cam], dtype=np.uint8)
                             )
-            print(f"✅ Data saved successfully")
+            print(f"✅ Data saved successfully (total episodes: {total_episodes})")
         except Exception as e:
             print(f"Failed to save data: {e}")
 
@@ -252,31 +269,89 @@ class FSMDataCollector:
         """
         self.setup()
 
-        # Prepare save path
-        save_dir = Path(self.config.save_dir)
+        # Prepare save paths following the standard structure
+        save_dir = Path(self.config.save_dir) / self.config.task / "raw"
         save_dir.mkdir(parents=True, exist_ok=True)
-        save_path = save_dir / f"{self.config.task}_demo.h5"
+        meta_dir = Path(self.config.save_dir) / self.config.task / "meta"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename: {task}_{version}_{date}.h5
+        date_str = datetime.now().strftime("%Y%m%d")
+        h5_filename = f"{self.config.task}_{self.config.version}_{date_str}.h5"
+        save_path = save_dir / h5_filename
 
-        # Collect all episodes
+        # Collect episodes (only successful ones)
         trajectories: List[Dict[str, Any]] = []
         success_count = 0
+        failed_count = 0
+        episode_id = 0
+        
+        print(f"\n{'='*60}")
+        print(f"Target: {self.config.num_episodes} successful episodes")
+        print(f"{'='*60}\n")
 
-        for ep in range(self.config.num_episodes):
-            trajectory, success = self.collect_episode(ep)
-            trajectories.append(trajectory)
+        # Keep collecting until we have enough successful episodes
+        while success_count < self.config.num_episodes:
+            trajectory, success = self.collect_episode(episode_id)
+            
             if success:
+                trajectories.append(trajectory)
                 success_count += 1
+                print(f"✅ Episode {episode_id} succeeded ({success_count}/{self.config.num_episodes} collected)")
+            else:
+                failed_count += 1
+                print(f"❌ Episode {episode_id} failed (IK/planning error) - skipping")
+            
+            episode_id += 1
+            
+            # Safety limit: prevent infinite loop if too many failures
+            if episode_id > self.config.num_episodes * 5:
+                print(f"\n⚠️  Warning: Too many failures ({failed_count}). Stopping collection.")
+                print(f"Collected {success_count}/{self.config.num_episodes} successful episodes.")
+                break
 
-        # Save data
-        self.save_data(trajectories, save_path)
+        # Save data (only successful episodes)
+        if trajectories:
+            self.save_data(trajectories, save_path)
+        else:
+            print("\n⚠️  No successful episodes to save!")
+            return
+
+        # Save metadata
+        total_attempts = success_count + failed_count
+        success_rate = 100 * success_count / total_attempts if total_attempts > 0 else 0
+        total_steps = sum(len(traj["action"]) for traj in trajectories)
+        
+        info_file = meta_dir / f"{self.config.task}_{self.config.version}_info.json"
+        info = {
+            "task": self.config.task,
+            "version": self.config.version,
+            "created_date": datetime.now().isoformat(),
+            "episodes_collected": success_count,
+            "episodes_attempted": total_attempts,
+            "episodes_failed": failed_count,
+            "total_steps": total_steps,
+            "success_rate": success_rate,
+            "cameras": self.cameras,
+            "fps": 30,
+            "h5_file": h5_filename,
+        }
+        with open(info_file, "w") as f:
+            json.dump(info, f, indent=2)
+        print(f"✅ Metadata saved to {info_file}")
 
         # Summary
         print(f"\n{'='*60}")
         print(f"Collection finished")
-        print(f"Task: {self.config.task}")
-        print(f"Total episodes: {self.config.num_episodes}")
-        print(f"Success rate: {success_count}/{self.config.num_episodes} ({100*success_count/self.config.num_episodes:.1f}%)")
-        print(f"Save path: {save_path}")
+        print(f"Task: {self.config.task} (v{self.config.version})")
+        print(f"Successfully collected: {success_count} episodes")
+        print(f"Total attempts: {total_attempts} (failed: {failed_count})")
+        print(f"Total steps: {total_steps}")
+        print(f"Success rate: {success_count}/{total_attempts} ({success_rate:.1f}%)")
+        print(f"Data saved to: {save_path}")
+        print(f"Metadata saved to: {info_file}")
+        print(f"💡 Tip: Run again with same task/version to append more episodes")
+        print(f"        Or increment version (e.g., v1.1) for a new batch")
         print(f"{'='*60}")
 
         # Close environment

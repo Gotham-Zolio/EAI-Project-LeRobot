@@ -90,14 +90,18 @@ class H5TrajectoryDataset(Dataset):
 
 
 def compute_stats_from_dataset(ds: Dataset, device: torch.device) -> dict:
-    """Compute mean/std for action and observation.state over the dataset."""
+    """Compute mean/std for action and observation.state over the dataset.
+    Uses small batches to avoid memory spikes on large datasets.
+    """
     keys = ["action", "observation.state"]
     sums = {k: 0.0 for k in keys}
     sums_sq = {k: 0.0 for k in keys}
     counts = {k: 0 for k in keys}
 
-    loader = DataLoader(ds, batch_size=64, shuffle=False)
-    for batch in loader:
+    # Use small batch size for memory efficiency
+    loader = DataLoader(ds, batch_size=32, shuffle=False, num_workers=0)
+    pbar = tqdm(loader, desc="Computing stats")
+    for batch in pbar:
         for k in keys:
             v = batch[k].to(device)
             sums[k] += v.sum(dim=0)
@@ -146,12 +150,37 @@ def train(cfg: DictConfig):
     log.info(f"Using device: {device}")
 
     # 1. Dataset (FSM/IK HDF5)
-    h5_default = Path("data") / f"{cfg.task}_demo.h5"
-    h5_path = Path(getattr(cfg, "dataset_path", h5_default))
-    log.info(f"Loading HDF5 dataset from {h5_path}...")
-    if not h5_path.exists():
-        raise FileNotFoundError(f"HDF5 dataset not found at {h5_path}. Run collect_data.py first or set cfg.dataset_path.")
+    # Support both old and new path structures
+    h5_candidates = [
+        Path(cfg.dataset_path) if cfg.dataset_path else None,
+        Path("data") / f"{cfg.task}_demo.h5",  # Old structure
+        Path("data") / "datasets" / cfg.task / "raw" / f"{cfg.task}_v1.0_*.h5",  # New structure (glob)
+    ]
+    
+    h5_path = None
+    for candidate in h5_candidates:
+        if candidate is None:
+            continue
+        if "*" in str(candidate):
+            # Handle glob patterns
+            matches = list(Path(candidate).parent.glob(candidate.name))
+            if matches:
+                h5_path = sorted(matches)[-1]  # Use latest if multiple
+                break
+        elif candidate.exists():
+            h5_path = candidate
+            break
+    
+    if h5_path is None:
+        raise FileNotFoundError(
+            f"HDF5 dataset not found. Tried:\n"
+            f"  - {h5_candidates[0]}\n"
+            f"  - {h5_candidates[1]}\n"
+            f"  - {h5_candidates[2]} (latest match)\n"
+            f"Run collect_data.py first or set cfg.dataset_path."
+        )
 
+    log.info(f"Loading HDF5 dataset from {h5_path}...")
     dataset = H5TrajectoryDataset(str(h5_path))
     log.info(f"Dataset loaded with {len(dataset)} steps")
     dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0)
@@ -160,6 +189,13 @@ def train(cfg: DictConfig):
     log.info("Computing normalization stats from dataset...")
     stats = compute_stats_from_dataset(dataset, device)
     log.info("Stats computed")
+    
+    # Save stats for reference
+    stats_path = Path(hydra.core.hydra_config.HydraConfig.get().run.dir) / "stats.json"
+    stats_dict = {k: {"mean": v["mean"].tolist(), "std": v["std"].tolist()} for k, v in stats.items()}
+    with open(stats_path, "w") as f:
+        json.dump(stats_dict, f, indent=2)
+    log.info(f"Stats saved to {stats_path}")
 
     # 2. Model
     sample_item = dataset[0]
