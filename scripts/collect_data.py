@@ -38,7 +38,7 @@ class CollectionConfig:
     """
     task: str = "lift"  # Task type: lift, stack, sort
     num_episodes: int = 10  # Number of episodes to collect
-    save_dir: str = os.path.expanduser("~/tmp/data/raw")  # Save directory
+    save_dir: str = str(Path(__file__).resolve().parents[1] / "data")  # Save directory under repo/data
     max_steps: int = 300  # Max steps per episode
     headless: bool = True  # Headless mode
     verbose: bool = False  # Verbose output

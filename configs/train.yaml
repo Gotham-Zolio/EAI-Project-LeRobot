@@ -12,3 +12,4 @@ batch_size: 8
 lr: 1e-4
 epochs: 100
 save_freq: 10
+dataset_path: null  # optional override, e.g., data/lift_demo.h5

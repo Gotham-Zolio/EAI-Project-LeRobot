@@ -28,3 +28,6 @@ diffusers>=0.28,<0.30
 fsspec<2025.8
 datasets>=2.14,<3.0
 av>=15,<16
+
+# --- Logging ---
+tensorboard
