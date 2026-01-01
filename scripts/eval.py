@@ -103,7 +103,7 @@ def main(checkpoint_path, task, num_episodes=10, device="cuda", headless=False, 
     env = LeRobotGymEnv(
         task=task,
         headless=headless,
-        max_steps=500
+        max_steps=1000  # 增加到1000步
     )
 
     # Evaluation metrics
@@ -175,6 +175,7 @@ def main(checkpoint_path, task, num_episodes=10, device="cuda", headless=False, 
             # Step environment
             obs, reward, done, truncated, info = env.step(action_np)
             step_count += 1
+            
         
         # Episode finished
         success = info.get("success", False)
