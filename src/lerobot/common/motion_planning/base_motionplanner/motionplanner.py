@@ -3,19 +3,47 @@ import numpy as np
 import sapien
 import trimesh
 
+try:
+    import torch
+except ImportError:  # torch may not be available in some minimal setups
+    torch = None
+
 # from mani_skill.agents.base_agent import BaseAgent
 # from mani_skill.envs.sapien_env import BaseEnv
 # from mani_skill.utils.structs.pose import to_sapien_pose
 
 def to_sapien_pose(pose):
+    """Convert various pose formats (torch, list, numpy) to sapien.Pose.
+
+    Supports:
+    - torch.Tensor (any device), shape (7,) or (1,7) -> (p, q)
+    - numpy/list/tuple length 7 -> (p, q)
+    - numpy 4x4 or (16,) -> matrix constructor
+    """
     if isinstance(pose, sapien.Pose):
         return pose
-    if isinstance(pose, (list, tuple, np.ndarray)):
-        if len(pose) == 7:
-            return sapien.Pose(p=pose[:3], q=pose[3:])
-        elif len(pose) == 44: # 4x4 matrix flattened? No.
-             pass
-    return sapien.Pose(pose) # Fallback
+
+    # ManiSkill Pose-like wrappers may carry raw_pose
+    if hasattr(pose, "raw_pose"):
+        pose = getattr(pose, "raw_pose")
+
+    # torch -> numpy on CPU
+    if torch is not None and isinstance(pose, torch.Tensor):
+        pose = pose.detach().cpu().numpy()
+
+    # numpy/list/tuple handling
+    arr = np.asarray(pose)
+    if arr.shape == (1, 7):
+        arr = arr.reshape(7)
+    if arr.shape == (7,):
+        return sapien.Pose(p=arr[:3], q=arr[3:])
+    if arr.shape == (4, 4):
+        return sapien.Pose(matrix=arr.astype(np.float32))
+    if arr.size == 16:
+        return sapien.Pose(matrix=arr.reshape(4, 4).astype(np.float32))
+
+    # Fallback: attempt direct constructor
+    return sapien.Pose(arr)
 
 class BaseMotionPlanningSolver:
 
@@ -154,11 +182,21 @@ class BaseMotionPlanningSolver:
         self, pose: sapien.Pose, dry_run: bool = False, refine_steps: int = 0, keep_gripper_open: bool = False
     ):
         pose = to_sapien_pose(pose)
+        print(f"[DEBUG] move_to_pose input pose: p={pose.p}, q={pose.q}")
         self._update_grasp_visual(pose)
         pose = self._transform_pose_for_planning(pose)
+        print(f"[DEBUG] pose after _transform_pose_for_planning: p={pose.p}, q={pose.q}")
+        
+        # Get current qpos and convert to numpy (could be torch.Tensor from ManiSkill)
+        current_qpos = self.robot.get_qpos()
+        if hasattr(current_qpos, 'detach'):  # torch.Tensor
+            current_qpos = current_qpos.detach().cpu().numpy()
+        if current_qpos.ndim > 1:  # Unbatch if needed (e.g., shape (1, 6) -> (6,))
+            current_qpos = current_qpos.reshape(-1)
+        
         result = self.planner.plan_qpos_to_pose(
             np.concatenate([pose.p, pose.q]),
-            self.robot.get_qpos(),
+            current_qpos,
             time_step=1/240,
             use_point_cloud=self.use_point_cloud,
             wrt_world=True,

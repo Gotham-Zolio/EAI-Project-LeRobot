@@ -1,8 +1,6 @@
 from typing import Any, Dict, Union
 import numpy as np
 import sapien
-from sapien import Entity
-from sapien.pysapien.render import RenderCameraComponent
 from PIL import Image, ImageDraw, ImageFont
 from scipy.spatial.transform import Rotation as R
 from lerobot.common.camera import (
@@ -25,37 +23,81 @@ from lerobot.agents.robots.so101.so_101 import SO101
 # ---------------- Global Constants ----------------
 CM = 0.01
 
-# ---------------- Utility / Scene building ----------------
 
+class DummyAgent:
+    def get_controller_state(self):
+        # 返回一个空 dict，结构需与真实 agent 一致
+        return {}
+    def get_proprioception(self):
+        # 返回一个空 dict，结构需与真实 agent 一致
+        return {}
 
 # =================== ManiSkill-style Env ===================
 class SO101TaskEnv(BaseEnv):
+    def get_state_dict(self):
+        # 保证 self.agent 不为 None，防止 ManiSkill 父类初始化期间报错
+        if self.agent is None:
+            print("[ERROR] self.agent is None in get_state_dict, returning DummyAgent state")
+            return DummyAgent().get_controller_state()
+        return self.agent.get_controller_state()
 
-    SUPPORTED_ROBOTS = ["so101_left", "so101_right"]
+    def _get_obs_agent(self):
+        print(f"[DEBUG] _get_obs_agent called. agent_left: {self.agent_left}, agent_right: {self.agent_right}")
+        if self.agent_left is None:
+            print("[ERROR] agent_left is None in _get_obs_agent!")
+        if self.agent_right is None:
+            print("[ERROR] agent_right is None in _get_obs_agent!")
+        obs = self.agent_left.get_proprioception() if self.agent_left else None
+        obs_right = self.agent_right.get_proprioception() if self.agent_right else None
+        print(f"[DEBUG] get_proprioception left: {obs}, right: {obs_right}")
+        return dict(left=obs, right=obs_right)
+
+    SUPPORTED_ROBOTS = ["so101"]
     agent_left: SO101
     agent_right: SO101
     robot_init_qpos_noise = 0.02
-    # front_cam (sensor_cam)
-    sensor_cam_eye_pos = np.array([0.316, 0.26, 0.407])
-    sensor_cam_target_pos = np.array([0.316, 0.26, 0.0])
+    # front_cam (sensor_cam) - 直接参数定义
+    sensor_cam_pos = np.array([0.316, 0.26, 0.407])  # [x, y, z] 位置
+    sensor_cam_quat_euler = [0.0, np.pi / 2, -np.pi / 2]  # xyz欧拉角
+    sensor_cam_near = 0.01
+    sensor_cam_far = 50.0
     # world demo camera (human_cam)
     human_cam_eye_pos = np.array([0.5, 0.55, 0.15])
     human_cam_target_pos = np.array([0.5, 0.25, 0.15])
     max_goal_height = 0.07
     lock_z = True
 
-    def __init__(self, *args, robot_uids="so101", robot_init_qpos_noise=0.02, **kwargs):
+    def __init__(self, *args, robot_init_qpos_noise=0.02, **kwargs):
+        print("[DEBUG] SO101TaskEnv.__init__ called")
+        dummy_agent = DummyAgent()
+        self.agent_left = dummy_agent
+        self.agent_right = dummy_agent
+        self.agent = dummy_agent
         self.robot_init_qpos_noise = robot_init_qpos_noise
-        super().__init__(*args, robot_uids=robot_uids, **kwargs)
+        super().__init__(*args, **kwargs)
+        print("[DEBUG] After super().__init__, instantiating real agents...")
+        # 按照 grasp_cube 的方式，直接用本地 SO101 类实例化，使用唯一的 agent_id
+        self.agent_left = SO101(self.scene, self.control_freq, agent_id="so101_left")
+        self.agent_right = SO101(self.scene, self.control_freq, agent_id="so101_right")
+        print(f"[DEBUG] agent_left: {self.agent_left}, agent_right: {self.agent_right}")
+        self.left_wrist_cam = self.add_wrist_camera(self.agent_left.robot)
+        self.right_wrist_cam = self.add_wrist_camera(self.agent_right.robot)
+        self.agent = self.agent_left
+        print(f"[DEBUG] self.agent set to agent_left: {self.agent}")
 
     @property
     def _default_sensor_configs(self):
-        # pick_cube style front camera config
-        front_cam_pose = sapien_utils.look_at(
-            eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
-        )
+        # Front camera config - 使用具体位置和四元数
+        quat = R.from_euler('xyz', self.sensor_cam_quat_euler).as_quat()  # xyzw
+        quat_sapien = [quat[3], quat[0], quat[1], quat[2]]  # wxyz
+        front_cam_pose = Pose(p=self.sensor_cam_pos, q=quat_sapien)
         return [CameraConfig(
-            "front_camera", front_cam_pose, 640, 480, np.deg2rad(50), 0.01, 50.0
+            "front_camera", front_cam_pose, FRONT_CAM_W, FRONT_CAM_H, 
+            fovy=None,  # 不使用 FOV，而是使用相机内参
+            near=self.sensor_cam_near, 
+            far=self.sensor_cam_far,
+            # 使用相机内参代替 FOV: (fx, fy, cx, cy, skew)
+            intrinsics=(FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, 0.0)
         )]
 
     @property
@@ -69,6 +111,15 @@ class SO101TaskEnv(BaseEnv):
         )
 
     def _load_scene(self, options: dict, task_name=None, rng=None):
+        # Remove any existing table/boundary actors to avoid ManiSkill name conflict
+        to_remove = []
+        for name in list(self.scene.actors.keys()):
+            if name.startswith("table-workspace") or name.startswith("boundary-line") or name == "ground":
+                to_remove.append(name)
+        for name in to_remove:
+            self.scene.actors.pop(name, None)
+            if hasattr(self.scene, 'state_dict_registry') and hasattr(self.scene.state_dict_registry, 'actors'):
+                self.scene.state_dict_registry.actors.pop(name, None)
         # pick_cube_so101.py style: TableSceneBuilder for table/boundaries, then build cube, goal, and spawn region
         self.table_scene = TableSceneBuilder(self, robot_init_qpos_noise=self.robot_init_qpos_noise)
         self.table_scene.build()
@@ -78,46 +129,54 @@ class SO101TaskEnv(BaseEnv):
         self.cube_spawn_half_size = getattr(self, 'cube_spawn_half_size', 0.08)
         spawn_center = [self.cube_spawn_center[0], self.cube_spawn_center[1], self.cube_half_size]
         spawn_half_size = [self.cube_spawn_half_size, self.cube_spawn_half_size, 1e-4]
-        self.cube_spawn_vis = actors.build_box(
-            self.scene,
-            half_sizes=spawn_half_size,
-            color=[0, 0, 1, 0.2],
-            name="cube_spawn_region",
-            add_collision=False,
-            initial_pose=sapien.Pose(p=spawn_center),
-        )
-        self.cube = actors.build_cube(
-            self.scene,
-            half_size=self.cube_half_size,
-            color=[1, 0, 0, 1],
-            name="cube",
-            initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
-        )
+        # Only build if not already present (avoid duplicate name error)
+        if "cube_spawn_region" not in self.scene.actors:
+            self.cube_spawn_vis = actors.build_box(
+                self.scene,
+                half_sizes=spawn_half_size,
+                color=[0, 0, 1, 0.2],
+                name="cube_spawn_region",
+                add_collision=False,
+                initial_pose=sapien.Pose(p=spawn_center),
+            )
+        else:
+            self.cube_spawn_vis = self.scene.actors["cube_spawn_region"]
+
+        if "cube" not in self.scene.actors:
+            self.cube = actors.build_cube(
+                self.scene,
+                half_size=self.cube_half_size,
+                color=[1, 0, 0, 1],
+                name="cube",
+                initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
+            )
+        else:
+            self.cube = self.scene.actors["cube"]
+
         self.goal_thresh = getattr(self, 'goal_thresh', 0.01875)
-        self.goal_site = actors.build_sphere(
-            self.scene,
-            radius=self.goal_thresh,
-            color=[0, 1, 0, 1],
-            name="goal_site",
-            body_type="kinematic",
-            add_collision=False,
-            initial_pose=sapien.Pose(),
-        )
+        if "goal_site" not in self.scene.actors:
+            self.goal_site = actors.build_sphere(
+                self.scene,
+                radius=self.goal_thresh,
+                color=[0, 1, 0, 1],
+                name="goal_site",
+                body_type="kinematic",
+                add_collision=False,
+                initial_pose=sapien.Pose(),
+            )
+        else:
+            self.goal_site = self.scene.actors["goal_site"]
+
         self._hidden_objects = getattr(self, '_hidden_objects', [])
-        self._hidden_objects.append(self.goal_site)
+        if self.goal_site not in self._hidden_objects:
+            self._hidden_objects.append(self.goal_site)
 
 
     # TableSceneBuilder now handles boundaries and table, so this is no longer needed.
 
     def _load_agent(self, options: dict):
-        # 采用 ManiSkill/pick_cube_so101.py 风格，调用父类自动实例化 agent
-        # 左臂和右臂初始位姿可根据实际需求调整
-        super()._load_agent(options)
-        # 给左右臂分别添加腕部摄像头（如有需要）
-        if hasattr(self, 'agent_left') and hasattr(self.agent_left, 'robot'):
-            self.left_wrist_cam = self.add_wrist_camera(self.agent_left.robot)
-        if hasattr(self, 'agent_right') and hasattr(self.agent_right, 'robot'):
-            self.right_wrist_cam = self.add_wrist_camera(self.agent_right.robot)
+        # 不再自动加载，已在__init__中手动实例化双臂
+        pass
 
     def initialize_agent(self, env_idx):
         b = len(env_idx)
@@ -168,8 +227,7 @@ class SO101TaskEnv(BaseEnv):
         
     def add_wrist_camera(self, robot, link_name="camera_link", fovy_deg=50.0, z_offset=0.05, near=0.01, far=5.0):
         """
-        Attach a RenderCameraComponent to a link (wrist). Use set_local_pose so it
-        respects SAPIEN 3.x API (no set_world_pose for RenderCameraComponent).
+        Attach a mounted camera to a link (wrist) using scene.add_mounted_camera.
         Returns the camera component.
         """
         link = robot.find_link_by_name(link_name)
@@ -184,17 +242,67 @@ class SO101TaskEnv(BaseEnv):
         cx = cam_w / 2
         cy = cam_h / 2
 
-        cam = RenderCameraComponent(width=cam_w, height=cam_h)
-        cam.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
-
-        link.entity.add_component(cam)
-
         offset = np.array([0.0, 0.0, z_offset], dtype=np.float32)
         quat = R.from_euler('xyz', [-np.pi/2, 0.0, 0.0]).as_quat()  # xyzw
         quat_sapien = [quat[3], quat[0], quat[1], quat[2]]         # wxyz
 
-        cam.set_local_pose(sapien.Pose(offset, quat_sapien))
-        return cam
+        # Prefer underlying sapien.Scene APIs if available
+        scene_obj = getattr(self.scene, "_scene", self.scene)
+        actor_target = link
+        for cand in ("entity", "_entity", "actor", "_actor"):
+            if hasattr(link, cand):
+                actor_target = getattr(link, cand)
+                break
+
+        if hasattr(scene_obj, "add_mounted_camera"):
+            try:
+                return scene_obj.add_mounted_camera(
+                    name=f"{link_name}_cam",
+                    actor=actor_target,
+                    pose=sapien.Pose(offset, quat_sapien),
+                    width=cam_w,
+                    height=cam_h,
+                    fovy=fovy_deg,
+                    near=near,
+                    far=far,
+                )
+            except Exception as e:
+                print(f"[WARN] add_mounted_camera failed: {e}")
+
+        if hasattr(scene_obj, "add_camera"):
+            try:
+                return scene_obj.add_camera(
+                    name=f"{link_name}_cam",
+                    pose=sapien.Pose(offset, quat_sapien),
+                    width=cam_w,
+                    height=cam_h,
+                    fovy=fovy_deg,
+                    near=near,
+                    far=far,
+                )
+            except Exception as e:
+                print(f"[WARN] add_camera failed: {e}")
+
+        # Fallback: RenderCameraComponent via link.entity.add_component or link.attach
+        try:
+            from sapien.pysapien.render import RenderCameraComponent
+            cam_comp = RenderCameraComponent(width=cam_w, height=cam_h)
+            cam_comp.set_perspective_parameters(near, far, fx, fy, cx, cy, skew=0.0)
+            # prefer entity.add_component
+            ent = getattr(link, "entity", None)
+            if ent is not None and hasattr(ent, "add_component"):
+                ent.add_component(cam_comp)
+            elif hasattr(link, "attach"):
+                link.attach(cam_comp)
+            else:
+                raise AttributeError("link lacks entity.add_component and attach")
+            cam_comp.set_local_pose(sapien.Pose(offset, quat_sapien))
+            return cam_comp
+        except Exception as e:
+            print(f"[WARN] RenderCameraComponent attach failed: {e}")
+
+        print("[WARN] No available API to mount camera on link; returning None")
+        return None
 
 
 # # ---------------- Scene configurations ----------------

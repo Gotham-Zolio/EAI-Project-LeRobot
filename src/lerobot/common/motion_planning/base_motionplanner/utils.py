@@ -10,12 +10,49 @@ from mani_skill.utils.geometry.trimesh_utils import get_component_mesh
 
 
 def get_actor_obb(actor: Actor, to_world_frame=True, vis=False):
-
-    entity = actor
-    rigid_comp = entity.find_component_by_type(physx.PhysxRigidDynamicComponent)
-    assert rigid_comp is not None, f"找不到 PhysxRigidDynamicComponent: {actor}"
+    # ManiSkill Actor wraps entities in _objs list
+    # Try to get the first object's rigid component
+    rigid_comp = None
+    
+    # Try the standard path: actor._objs[0] with find_component_by_type
+    try:
+        if hasattr(actor, "_objs") and actor._objs:
+            obj = actor._objs[0]
+            if hasattr(obj, "find_component_by_type"):
+                # Try dynamic first
+                rigid_comp = obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+                # Fallback to static
+                if rigid_comp is None:
+                    rigid_comp = obj.find_component_by_type(physx.PhysxRigidStaticComponent)
+    except Exception as e:
+        pass
+    
+    # If that didn't work, try entity path
+    if rigid_comp is None:
+        try:
+            entity = actor.entity if hasattr(actor, "entity") else actor
+            if hasattr(entity, "find_component_by_type"):
+                rigid_comp = entity.find_component_by_type(physx.PhysxRigidDynamicComponent)
+                if rigid_comp is None:
+                    rigid_comp = entity.find_component_by_type(physx.PhysxRigidStaticComponent)
+        except Exception:
+            pass
+    
+    # Final fallback: iterate get_components if available
+    if rigid_comp is None:
+        try:
+            entity = actor.entity if hasattr(actor, "entity") else actor
+            if hasattr(entity, "get_components"):
+                for comp in entity.get_components():
+                    if isinstance(comp, (physx.PhysxRigidDynamicComponent, physx.PhysxRigidStaticComponent)):
+                        rigid_comp = comp
+                        break
+        except Exception:
+            pass
+    
+    assert rigid_comp is not None, f"Unable to find rigid component in actor: {actor}"
     mesh = get_component_mesh(rigid_comp, to_world_frame=to_world_frame)
-    assert mesh is not None, f"无法获取 actor mesh: {actor}"
+    assert mesh is not None, f"Unable to get mesh for actor: {actor}"
     obb: trimesh.primitives.Box = mesh.bounding_box_oriented
     if vis:
         obb.visual.vertex_colors = (255, 0, 0, 10)

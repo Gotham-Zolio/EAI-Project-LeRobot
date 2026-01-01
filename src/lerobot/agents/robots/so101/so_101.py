@@ -31,6 +31,19 @@ class SO101(BaseAgent):
         ),
     )
 
+    def __init__(self, scene, control_freq, agent_id: str = None, **kwargs):
+        """Initialize SO101 agent with unique agent_id for dual-arm support.
+        
+        Args:
+            scene: The scene to add the robot to
+            control_freq: Control frequency  
+            agent_id: Unique identifier for this agent instance (default: uid value)
+        """
+        # Temporarily override uid for this instance if agent_id provided
+        if agent_id:
+            self.uid = agent_id
+        super().__init__(scene, control_freq, **kwargs)
+
     keyframes = dict(
         rest=Keyframe(
             # qpos=np.array([0, 2.2, 3.017, -0.25, 0, 0.6044]),

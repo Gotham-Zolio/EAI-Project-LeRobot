@@ -267,12 +267,12 @@
       </geometry>
       <material name="sts3215"/>
     </visual>
-    <collision>
+    <!-- <collision>
       <origin xyz="0.0077 0.0001 0.0234" rpy="-1.5708 -5.19179e-17 -1.66533e-16"/>
       <geometry>
         <mesh filename="assets/sts3215_03a_v1.stl"/>
       </geometry>
-    </collision>
+    </collision> -->
     <!-- Part wrist_roll_follower_so101_v1 -->
     <visual>
       <origin xyz="8.32667e-17 -0.000218214 0.000949706" rpy="-3.14159 -5.55112e-17 0"/>
@@ -281,7 +281,7 @@
       </geometry>
       <material name="3d_printed"/>
     </visual>
-    <!-- <collision>
+    <collision>
       <origin
         xyz="0 0 0"
         rpy="-1.57 0 3.14159" />
@@ -298,7 +298,7 @@
         <mesh
           filename="assets/Fixed_Jaw_part2.ply" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint name="gripper_camera_joint" type="fixed">
@@ -308,18 +308,6 @@
   </joint>
 
   <link name="camera_link">
-        <visual>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
-          <geometry>
-            <mesh filename="assets/Wrist_Cam_Mount_32x32_UVC_Module_SO101.stl" scale="0.001 0.001 0.001"/>
-          </geometry>
-        </visual>
-        <collision>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
-          <geometry>
-            <mesh filename="assets/Wrist_Cam_Mount_32x32_UVC_Module_SO101.stl" scale="0.001 0.001 0.001"/>
-          </geometry>
-        </collision>
     <inertial>
       <mass value="0"/>
       <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
@@ -342,12 +330,6 @@
       <material name="3d_printed"/>
     </visual>
     <collision>
-      <origin xyz="-5.55112e-17 -5.55112e-17 0.0189" rpy="9.53145e-17 6.93889e-18 1.24077e-24"/>
-      <geometry>
-        <mesh filename="assets/moving_jaw_so101_v1.stl"/>
-      </geometry>
-    </collision>
-    <!-- <collision>
       <origin
         xyz="0 0 0.0189"
         rpy="0 0 0" />
@@ -373,7 +355,7 @@
         <mesh
           filename="assets/Moving_Jaw_part3.ply" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <!-- Joint from gripper to moving_jaw_so101_v1 -->
@@ -438,18 +420,6 @@
     <child link="gripper_link_tip"/>
   </joint>
   <link name="gripper_link_tip">
-        <visual>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
-          <geometry>
-            <mesh filename="assets/Fixed_Jaw.stl"/>
-          </geometry>
-        </visual>
-        <collision>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
-          <geometry>
-            <mesh filename="assets/Fixed_Jaw.stl"/>
-          </geometry>
-        </collision>
     <visual>
       <origin
         xyz="0 0 0"
@@ -468,18 +438,6 @@
     <child link="moving_jaw_so101_v1_link_tip"/>
   </joint>
   <link name="moving_jaw_so101_v1_link_tip">
-        <visual>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
-          <geometry>
-            <mesh filename="assets/Moving_Jaw.stl"/>
-          </geometry>
-        </visual>
-        <collision>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
-          <geometry>
-            <mesh filename="assets/Moving_Jaw.stl"/>
-          </geometry>
-        </collision>
     <visual>
       <origin
         xyz="0 0 0"
