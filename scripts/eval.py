@@ -127,9 +127,12 @@ def main(checkpoint_path, task, num_episodes=10, device="cuda", headless=False, 
             state_tensor = torch.from_numpy(obs["qpos"]).float().unsqueeze(0).to(device)
             
             # Get front camera image
-            front_img = obs["images"]["front"]  # Already RGB uint8
+            front_img = obs["images"]["front"]  # RGB or RGBA uint8
             
-            # Resize to match training (640x480 -> smaller for efficiency, or keep original)
+            # Handle RGBA images (4 channels) -> RGB (3 channels)
+            if front_img.shape[-1] == 4:
+                front_img = front_img[..., :3]
+            
             # Policy expects (1, 3, H, W) in [0, 1] range
             img_tensor = torch.from_numpy(front_img).permute(2, 0, 1).float() / 255.0
             img_tensor = img_tensor.unsqueeze(0).to(device)
@@ -145,17 +148,20 @@ def main(checkpoint_path, task, num_episodes=10, device="cuda", headless=False, 
             # Update web viewer
             if viewer_app:
                 frames = {"front": front_img}
-                if "right_wrist" in obs["images"]:
-                    frames["right_wrist"] = obs["images"]["right_wrist"]
-                if "left_wrist" in obs["images"]:
-                    frames["left_wrist"] = obs["images"]["left_wrist"]
+                # Add all available camera views
+                for cam_name in ["right_wrist", "left_wrist", "world"]:
+                    if cam_name in obs["images"]:
+                        cam_img = obs["images"][cam_name]
+                        # Handle RGBA -> RGB
+                        if cam_img.shape[-1] == 4:
+                            cam_img = cam_img[..., :3]
+                        frames[cam_name] = cam_img
                 viewer_app.update_frames(frames)
                 viewer_app.update_status(
-                    mode="Evaluation",
+                    mode=f"Evaluation (Policy) Step {step_count}",
                     episode=ep + 1,
                     total_episodes=num_episodes,
-                    task=task,
-                    step=step_count
+                    task=task
                 )
             
             # Inference
