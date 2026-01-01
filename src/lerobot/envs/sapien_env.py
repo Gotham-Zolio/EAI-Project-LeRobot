@@ -236,17 +236,17 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     world_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
     world_cam_mount.add_component(world_cam)
 
-    # cam_x, cam_y, cam_z = -14.0 * CM, 60.0 * CM, 40.0 * CM  # 调低 z，调整 y
-    # quat = R.from_euler('xyz', [0.0, np.pi / 6, -np.pi / 4]).as_quat()
-    # quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
-    # world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
-    # scene.add_entity(world_cam_mount)
-
-    cam_x, cam_y, cam_z = 50.0 * CM, 50.0 * CM, 15.0 * CM  # 调低 z，调整 y
-    quat = R.from_euler('xyz', [0.0, np.pi / 12, -np.pi / 2]).as_quat()
+    cam_x, cam_y, cam_z = -14.0 * CM, 60.0 * CM, 40.0 * CM  # 调低 z，调整 y
+    quat = R.from_euler('xyz', [0.0, np.pi / 6, -np.pi / 4]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
     scene.add_entity(world_cam_mount)
+
+    # cam_x, cam_y, cam_z = 50.0 * CM, 50.0 * CM, 15.0 * CM  # 调低 z，调整 y
+    # quat = R.from_euler('xyz', [0.0, np.pi / 12, -np.pi / 2]).as_quat()
+    # quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
+    # world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
+    # scene.add_entity(world_cam_mount)
 
     return scene, front_cam, left_arm, right_arm, left_wrist_cam, right_wrist_cam, world_cam
 
