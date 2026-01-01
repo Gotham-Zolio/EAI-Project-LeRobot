@@ -19,7 +19,7 @@ def add_box(scene, center, size, color):
     visual_material = sapien.render.RenderMaterial()
     visual_material.base_color = np.array(color)
     # 创建物理摩擦材质
-    physx_material = scene.create_physical_material(static_friction=1.0, dynamic_friction=0.8, restitution=0.0)
+    physx_material = scene.create_physical_material(static_friction=2.0, dynamic_friction=2.0, restitution=0.0)
     actor_builder.add_box_collision(half_size=half, material=physx_material)
     actor_builder.add_box_visual(half_size=half, material=visual_material)
     actor = actor_builder.build_static()
@@ -86,7 +86,7 @@ def load_arm(scene, urdf_path, root_x):
     for link in arm.get_links():
         if any(name in link.name.lower() for name in ['gripper', 'finger', 'jaw', 'tip']):
             for shape in link.get_collision_shapes():
-                physx_material = scene.create_physical_material(static_friction=1.0, dynamic_friction=0.8, restitution=0.0)
+                physx_material = scene.create_physical_material(static_friction=2.0, dynamic_friction=2.0, restitution=0.0)
                 shape.set_physical_material(physx_material)
 
     return arm
@@ -138,7 +138,7 @@ def add_block(scene, center, color, label="A", rotation_z=0.0):
     half = [s / 2 for s in size]
     visual_material = sapien.render.RenderMaterial()
     visual_material.base_color = np.array(color)
-    physx_material = scene.create_physical_material(static_friction=1.0, dynamic_friction=0.8, restitution=0.0)
+    physx_material = scene.create_physical_material(static_friction=2.0, dynamic_friction=2.0, restitution=0.0)
     actor_builder.add_box_collision(half_size=half, material=physx_material)
     actor_builder.add_box_visual(half_size=half, material=visual_material)
 
@@ -236,8 +236,14 @@ def create_scene(fix_root_link: bool = True, balance_passive_force: bool = True,
     world_cam.set_perspective_parameters(near, far, FRONT_FX, FRONT_FY, FRONT_CX, FRONT_CY, skew=0.0)
     world_cam_mount.add_component(world_cam)
 
-    cam_x, cam_y, cam_z = -14.0 * CM, 60.0 * CM, 40.0 * CM  # 调低 z，调整 y
-    quat = R.from_euler('xyz', [0.0, np.pi / 6, -np.pi / 4]).as_quat()
+    # cam_x, cam_y, cam_z = -14.0 * CM, 60.0 * CM, 40.0 * CM  # 调低 z，调整 y
+    # quat = R.from_euler('xyz', [0.0, np.pi / 6, -np.pi / 4]).as_quat()
+    # quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
+    # world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
+    # scene.add_entity(world_cam_mount)
+
+    cam_x, cam_y, cam_z = 50.0 * CM, 50.0 * CM, 15.0 * CM  # 调低 z，调整 y
+    quat = R.from_euler('xyz', [0.0, np.pi / 12, -np.pi / 2]).as_quat()
     quat_sapien = [quat[3], quat[0], quat[1], quat[2]]
     world_cam_mount.set_pose(Pose([cam_x, cam_y, cam_z], quat_sapien))
     scene.add_entity(world_cam_mount)
@@ -250,11 +256,11 @@ def get_random_pose(x_range, y_range, z_height, rng=None):
     if rng is None:
         x = np.random.uniform(*x_range)
         y = np.random.uniform(*y_range)
-        rot_z = np.random.uniform(0, np.pi / 2)
+        rot_z = np.random.uniform(np.pi / 4, np.pi / 2)
     else:
         x = rng.uniform(*x_range)
         y = rng.uniform(*y_range)
-        rot_z = rng.uniform(0, np.pi / 2)
+        rot_z = rng.uniform(np.pi / 4, np.pi / 2)
     z = z_height
     return [x, y, z], rot_z
 
