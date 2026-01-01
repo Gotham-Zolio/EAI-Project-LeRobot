@@ -362,6 +362,18 @@ class FSMDataCollector:
 
 
 
+def _adapt_hydra_style_args(argv: list[str]) -> list[str]:
+    """Allow Hydra-style key=value by converting to --config.key value for Tyro."""
+    adapted: list[str] = []
+    for arg in argv:
+        if "=" in arg and not arg.startswith("--"):
+            key, value = arg.split("=", 1)
+            adapted.extend([f"--config.{key}", value])
+        else:
+            adapted.append(arg)
+    return adapted
+
+
 def main(config: CollectionConfig):
     """
     Entry point for FSM+IK expert data collection.
@@ -371,4 +383,5 @@ def main(config: CollectionConfig):
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    parsed_args = _adapt_hydra_style_args(sys.argv[1:])
+    tyro.cli(main, args=parsed_args)
