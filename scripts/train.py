@@ -334,7 +334,7 @@ def train(cfg: DictConfig):
             
             epoch_loss += loss.item()
             batch_count += 1
-            pbar.set_postfix({"loss": loss.item():.4f}, refresh=False)
+            pbar.set_postfix({"loss": f"{loss.item():.4f}"}, refresh=False)
             
             # Log to TensorBoard
             writer.add_scalar("Loss/batch", loss.item(), global_step)
